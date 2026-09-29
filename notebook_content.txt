@@ -1,0 +1,6000 @@
+
+--- code ---
+!pip install -q huggingface_hub
+
+--- code ---
+import pandas as pd
+
+cases = pd.read_parquet(
+    "hf://datasets/phamquiluan/RCAEval/cases.parquet"
+)
+
+print("Shape:", cases.shape)
+
+print("\nColumns:")
+print(cases.columns.tolist())
+
+display(cases.head())
+
+--- code ---
+print("Number of cases:", len(cases))
+
+print("\nDatasets:")
+display(cases["dataset"].value_counts())
+
+print("\nFault types:")
+display(cases["fault"].value_counts())
+
+print("\nRoot-cause services:")
+display(cases["root_cause_service"].value_counts())
+
+--- code ---
+print("\nTelemetry availability:")
+
+print("Cases with logs:", cases["has_logs"].sum())
+print("Cases with traces:", cases["has_traces"].sum())
+
+print("\nMetric count:")
+display(cases["n_metrics"].describe())
+
+print("\nLog count:")
+display(cases["n_logs"].describe())
+
+print("\nTrace count:")
+display(cases["n_traces"].describe())
+
+--- code ---
+re2 = cases[cases["suite"].str.startswith("RE2")].copy()
+
+print("RE2 cases:", len(re2))
+
+print("\nCases by system:")
+display(re2["system_name"].value_counts())
+
+print("\nFaults:")
+display(re2["fault"].value_counts())
+
+print("\nRoot-cause services:")
+display(re2["root_cause_service"].value_counts())
+
+print("\nTelemetry:")
+print("Logs:", re2["has_logs"].value_counts())
+print("Traces:", re2["has_traces"].value_counts())
+
+--- code ---
+display(
+    re2[
+        [
+            "case",
+            "dataset",
+            "system_name",
+            "root_cause_service",
+            "fault",
+            "fault_description",
+            "repetition",
+            "duration_minutes",
+            "n_metrics",
+            "n_logs",
+            "n_traces"
+        ]
+    ].head(20)
+)
+
+--- code ---
+faults = ["cpu", "delay", "disk", "loss", "mem", "socket"]
+
+subset = (
+    re2[
+        (re2["has_logs"]) &
+        (re2["fault"].isin(faults))
+    ]
+    .sort_values(["system_name", "fault", "repetition"])
+    .groupby(["system_name", "fault"], as_index=False)
+    .first()
+)
+
+print("Selected cases:", len(subset))
+
+display(
+    subset[
+        [
+            "case",
+            "system_name",
+            "fault",
+            "root_cause_service",
+            "repetition",
+            "has_logs",
+            "has_traces",
+            "n_metrics",
+            "n_logs",
+            "n_traces"
+        ]
+    ]
+)
+
+
+--- code ---
+case_id = "re2ob_checkoutservice_cpu_1"
+
+selected_case = cases[cases["case"] == case_id]
+
+display(selected_case.T)
+
+--- code ---
+from huggingface_hub import snapshot_download
+import os
+
+case_id = "re2ob_checkoutservice_cpu_1"
+
+case_dir = snapshot_download(
+    repo_id="phamquiluan/RCAEval",
+    repo_type="dataset",
+    allow_patterns=f"{case_id}/*",
+    local_dir="/content/rcaeval_case"
+)
+
+print("Downloaded to:", case_dir)
+
+--- code ---
+import os
+
+for root, dirs, files in os.walk("/content/rcaeval_case"):
+    for file in files:
+        path = os.path.join(root, file)
+        size_mb = os.path.getsize(path) / (1024**2)
+        print(f"{file:25s} {size_mb:8.2f} MB")
+
+--- code ---
+import os
+
+base = "/content/rcaeval_case"
+
+for root, dirs, files in os.walk(base):
+    for file in files:
+        if file in ["metrics.parquet", "logs.parquet", "traces.parquet", "inject_time.txt"]:
+            print(os.path.join(root, file))
+
+--- code ---
+from pathlib import Path
+import pandas as pd
+
+base = Path("/content/rcaeval_case")
+
+# The case_id is already set globally to "re2ob_checkoutservice_cpu_1"
+# in cell FSMkX9l-SId9 and dFv5p4PMWKXm.
+# Ensure `cases` DataFrame is available from TLFcDcJ6OSqs
+
+# Load the case data using the helper function
+# 'case_id' variable is set in FSMkX9l-SId9
+case_data = load_case(case_id, cases, base_dir=base)
+case_data = normalize_timestamps(case_data)
+case_data = add_relative_time(case_data)
+
+# Assign to global variables for backward compatibility
+metrics = case_data["metrics"]
+logs = case_data["logs"]
+traces = case_data["traces"]
+
+print("Metrics shape:", metrics.shape)
+print("Logs shape:", logs.shape)
+print("Traces shape:", traces.shape)
+
+print("\nTraces relative_time min:", traces["relative_time"].min())
+print("Traces relative_time max:", traces["relative_time"].max())
+
+--- code ---
+print("\nMETRICS COLUMNS")
+print(metrics.columns.tolist())
+
+print("\nLOGS COLUMNS")
+print(logs.columns.tolist())
+
+print("\nTRACES COLUMNS")
+print(traces.columns.tolist())
+
+--- code ---
+print("\n=== METRICS SAMPLE ===")
+display(metrics.head())
+
+print("\n=== LOGS SAMPLE ===")
+display(logs.head())
+
+print("\n=== TRACES SAMPLE ===")
+display(traces.head())
+
+--- code ---
+import matplotlib.pyplot as plt
+
+# Convert timestamps to readable relative seconds
+metrics["relative_time"] = metrics["time"] - 1705354566
+
+plt.figure(figsize=(12, 5))
+
+plt.plot(
+    metrics["relative_time"],
+    metrics["checkoutservice_cpu"]
+)
+
+plt.axvline(
+    0,
+    linestyle="--",
+    label="Fault injection"
+)
+
+plt.xlabel("Seconds relative to fault injection")
+plt.ylabel("Checkoutservice CPU")
+plt.title("Checkoutservice CPU — CPU Stress Incident")
+plt.legend()
+plt.grid(True)
+
+plt.show()
+
+--- code ---
+[c for c in metrics.columns if "checkoutservice" in c and "latency" in c.lower()]
+
+--- code ---
+plt.figure(figsize=(12, 5))
+
+plt.plot(
+    metrics["relative_time"],
+    metrics["checkoutservice_latency-90"]
+)
+
+plt.axvline(
+    0,
+    linestyle="--",
+    label="Fault injection"
+)
+
+plt.xlabel("Seconds relative to fault injection")
+plt.ylabel("Checkoutservice latency (p90)")
+plt.title("Checkoutservice p90 Latency — CPU Stress Incident")
+plt.legend()
+plt.grid(True)
+
+plt.show()
+
+--- code ---
+logs["relative_time"] = logs["timestamp"] - 1705354566
+
+window = logs[
+    (logs["relative_time"] >= -60) &
+    (logs["relative_time"] <= 60)
+]
+
+print("Logs in ±60 seconds around fault:", len(window))
+
+display(window.head(20))
+
+--- code ---
+checkout_logs = window[
+    window["container_name"] == "checkoutservice"
+]
+
+print("Checkoutservice logs in ±60 seconds:", len(checkout_logs))
+
+display(checkout_logs.head(30))
+
+--- code ---
+checkout_logs["message"].value_counts().head(20)
+
+--- code ---
+checkout_logs = checkout_logs.copy()
+
+checkout_logs["time_bin"] = (
+    checkout_logs["timestamp"] // 10
+) * 10
+
+log_counts = (
+    checkout_logs
+    .groupby("time_bin")
+    .size()
+)
+
+log_counts.head()
+
+--- code ---
+plot_time = log_counts.index - 1705354566
+
+plt.figure(figsize=(12, 5))
+
+plt.plot(plot_time, log_counts.values)
+
+plt.axvline(
+    0,
+    linestyle="--",
+    label="Fault injection"
+)
+
+plt.xlabel("Seconds relative to fault injection")
+plt.ylabel("Checkoutservice logs / 10 seconds")
+plt.title("Checkoutservice Log Volume Around CPU Stress")
+plt.legend()
+plt.grid(True)
+
+plt.show()
+
+--- code ---
+traces["serviceName"].value_counts()
+
+--- code ---
+traces["statusCode"].value_counts(dropna=False)
+
+--- code ---
+print(traces["time"].dtype)
+print(traces["time"].min())
+print(traces["time"].max())
+print(traces["time"].head())
+
+--- code ---
+print(traces["startTimeMillis"].dtype)
+print(traces["startTimeMillis"].head())
+print(traces["startTimeMillis"].min())
+print(traces["startTimeMillis"].max())
+
+--- code ---
+print("Traces already contain 'relative_time' from 'add_relative_time' function.")
+print("Min relative_time:", traces["relative_time"].min())
+print("Max relative_time:", traces["relative_time"].max())
+
+--- code ---
+trace_window = traces[
+    (traces["relative_time"] >= -60) &
+    (traces["relative_time"] <= 60)
+]
+
+print("Trace spans in ±60 seconds:", len(trace_window))
+
+display(
+    trace_window[
+        [
+            "relative_time",
+            "serviceName",
+            "operationName",
+            "duration",
+            "statusCode"
+        ]
+    ].head(30)
+)
+
+--- code ---
+
+
+--- code ---
+print("Traces already contain 'relative_time' from 'add_relative_time' function.")
+print("Min relative_time:", traces["relative_time"].min())
+print("Max relative_time:", traces["relative_time"].max())
+
+--- code ---
+trace_window = traces[
+    (traces["relative_time"] >= -60) &
+    (traces["relative_time"] <= 60)
+]
+
+print("Trace spans in ±60 seconds:", len(trace_window))
+
+display(
+    trace_window[
+        [
+            "relative_time",
+            "serviceName",
+            "operationName",
+            "duration",
+            "statusCode"
+        ]
+    ].head(30)
+)
+
+--- code ---
+trace_window["serviceName"].value_counts()
+
+--- code ---
+checkout_traces = trace_window[
+    trace_window["serviceName"] == "checkoutservice"
+]
+
+print("Checkoutservice spans:", len(checkout_traces))
+
+checkout_traces["operationName"].value_counts()
+
+--- code ---
+print(checkout_traces["duration"].describe())
+
+--- code ---
+display(
+    checkout_traces[
+        ["serviceName", "operationName", "duration"]
+    ].head(20)
+)
+
+--- code ---
+print(traces.columns.tolist())
+
+--- code ---
+before = checkout_traces[
+    (checkout_traces["relative_time"] >= -60) &
+    (checkout_traces["relative_time"] < 0)
+]["duration"]
+
+after = checkout_traces[
+    (checkout_traces["relative_time"] >= 0) &
+    (checkout_traces["relative_time"] <= 60)
+]["duration"]
+
+print("Before fault:")
+print(before.describe())
+
+print("\nAfter fault:")
+print(after.describe())
+
+--- code ---
+if not checkout_traces.empty:
+    sample_trace_id = checkout_traces["traceID"].iloc[0]
+    print(sample_trace_id)
+else:
+    print("No checkoutservice traces available to sample a trace ID.")
+    sample_trace_id = None # Ensure sample_trace_id is defined even if empty
+
+
+--- code ---
+if sample_trace_id:
+    one_trace = traces[
+        traces["traceID"] == sample_trace_id
+    ].sort_values("startTimeMillis")
+
+    display(
+        one_trace[
+            [
+                "serviceName",
+                "operationName",
+                "parentSpanID",
+                "duration",
+                "statusCode"
+            ]
+        ]
+    )
+else:
+    print("No sample_trace_id available for detailed analysis.")
+
+--- code ---
+import pandas as pd
+
+# Assuming one_trace and sample_trace_id are available from previous cells
+if sample_trace_id:
+    print(f"Analyzing trace ID: {sample_trace_id}\n")
+
+    # Calculate relative start time within the trace
+    min_start_time = one_trace["startTimeMillis"].min()
+    # Ensure we are working on a copy to avoid SettingWithCopyWarning
+    trace_to_analyze = one_trace.copy()
+    trace_to_analyze["relative_start_ms"] = trace_to_analyze["startTimeMillis"] - min_start_time
+
+    # Create a dictionary for quick lookup of spans by spanID
+    span_details_map = {row["spanID"]: row for _, row in trace_to_analyze.iterrows()}
+
+    # Identify all spanIDs present in this trace
+    all_span_ids_in_trace = set(trace_to_analyze["spanID"].tolist())
+
+    # Find spans that are considered roots of this particular segment of the trace.
+    # A span is a root if its parentSpanID is NaN/None, or if its parentSpanID
+    # is not present among any other spanID within this 'one_trace' DataFrame.
+    potential_root_spans = trace_to_analyze[
+        trace_to_analyze["parentSpanID"].isna() |
+        (~trace_to_analyze["parentSpanID"].isin(all_span_ids_in_trace))
+    ].sort_values("startTimeMillis")
+
+    if not potential_root_spans.empty:
+        # Take the earliest potential root as the starting point for printing
+        root_span_id_to_start_from = potential_root_spans.iloc[0]["spanID"]
+
+        # Function to print a span and its children recursively
+        def print_span(current_span_id, indent=0):
+            span = span_details_map[current_span_id]
+
+            status_text = span["statusCode"]
+            if pd.isna(status_text):
+                status_text = "OK" # Common convention for unspecified status
+
+            print(
+                "  " * indent +
+                f"[{span['serviceName']}] "
+                f"{span['operationName']} "
+                f"({span['duration']}us, +" # Duration is in microseconds
+                f"{span['relative_start_ms']}ms from trace start)"
+                f" Status: {status_text}"
+            )
+
+            # Find children of the current span that are also in this trace
+            children = trace_to_analyze[trace_to_analyze["parentSpanID"] == current_span_id]
+            for _, child_span in children.sort_values("startTimeMillis").iterrows():
+                print_span(child_span["spanID"], indent + 1)
+
+        print_span(root_span_id_to_start_from)
+    else:
+        print("Warning: No clear root span found for this trace segment. It might be part of a larger trace or broken.")
+        if not trace_to_analyze.empty:
+            print("Displaying all spans flat for examination:")
+            for _, span in trace_to_analyze.iterrows():
+                status_text = span["statusCode"]
+                if pd.isna(status_text):
+                    status_text = "OK"
+                print(
+                    f"[{span['serviceName']}] "
+                    f"{span['operationName']} "
+                    f"({span['duration']}us, +"
+                    f"{span['relative_start_ms']}ms from trace start)"
+                    f" Status: {status_text}"
+                )
+        else:
+            print("Trace is empty.")
+else:
+    print("No sample_trace_id was available for detailed analysis.")
+
+
+--- code ---
+import pandas as pd
+
+# Assuming one_trace and sample_trace_id are available from previous cells
+if sample_trace_id:
+    print(f"Analyzing trace ID: {sample_trace_id}\n")
+
+    # Calculate relative start time within the trace
+    min_start_time = one_trace["startTimeMillis"].min()
+    # Ensure we are working on a copy to avoid SettingWithCopyWarning
+    trace_to_analyze = one_trace.copy()
+    trace_to_analyze["relative_start_ms"] = trace_to_analyze["startTimeMillis"] - min_start_time
+
+    # Create a dictionary for quick lookup of spans by spanID
+    span_details_map = {row["spanID"]: row for _, row in trace_to_analyze.iterrows()}
+
+    # Identify all spanIDs present in this trace
+    all_span_ids_in_trace = set(trace_to_analyze["spanID"].tolist())
+
+    # Find spans that are considered roots of this particular segment of the trace.
+    # A span is a root if its parentSpanID is NaN/None, or if its parentSpanID
+    # is not present among any other spanID within this 'one_trace' DataFrame.
+    potential_root_spans = trace_to_analyze[
+        trace_to_analyze["parentSpanID"].isna() |
+        (~trace_to_analyze["parentSpanID"].isin(all_span_ids_in_trace))
+    ].sort_values("startTimeMillis")
+
+    if not potential_root_spans.empty:
+        # Take the earliest potential root as the starting point for printing
+        root_span_id_to_start_from = potential_root_spans.iloc[0]["spanID"]
+
+        # Function to print a span and its children recursively
+        def print_span(current_span_id, indent=0):
+            span = span_details_map[current_span_id]
+
+            status_text = span["statusCode"]
+            if pd.isna(status_text):
+                status_text = "OK" # Common convention for unspecified status
+
+            print(
+                "  " * indent +
+                f"[{span['serviceName']}] "
+                f"{span['operationName']} "
+                f"({span['duration']}us, +" # Duration is in microseconds
+                f"{span['relative_start_ms']}ms from trace start)"
+                f" Status: {status_text}"
+            )
+
+            # Find children of the current span that are also in this trace
+            children = trace_to_analyze[trace_to_analyze["parentSpanID"] == current_span_id]
+            for _, child_span in children.sort_values("startTimeMillis").iterrows():
+                print_span(child_span["spanID"], indent + 1)
+
+        print_span(root_span_id_to_start_from)
+    else:
+        print("Warning: No clear root span found for this trace segment. It might be part of a larger trace or broken.")
+        if not trace_to_analyze.empty:
+            print("Displaying all spans flat for examination:")
+            for _, span in trace_to_analyze.iterrows():
+                status_text = span["statusCode"]
+                if pd.isna(status_text):
+                    status_text = "OK"
+                print(
+                    f"[{span['serviceName']}] "
+                    f"{span['operationName']} "
+                    f"({span['duration']}us, +"
+                    f"{span['relative_start_ms']}ms from trace start)"
+                    f" Status: {status_text}"
+                )
+        else:
+            print("Trace is empty.")
+else:
+    print("No sample_trace_id was available for detailed analysis.")
+
+
+--- code ---
+import pandas as pd
+
+# Assuming one_trace and sample_trace_id are available from previous cells
+if sample_trace_id:
+    print(f"Analyzing trace ID: {sample_trace_id}\n")
+
+    # Calculate relative start time within the trace
+    min_start_time = one_trace["startTimeMillis"].min()
+    # Ensure we are working on a copy to avoid SettingWithCopyWarning
+    trace_to_analyze = one_trace.copy()
+    trace_to_analyze["relative_start_ms"] = trace_to_analyze["startTimeMillis"] - min_start_time
+
+    # Create a dictionary for quick lookup of spans by spanID
+    span_details_map = {row["spanID"]: row for _, row in trace_to_analyze.iterrows()}
+
+    # Identify all spanIDs present in this trace
+    all_span_ids_in_trace = set(trace_to_analyze["spanID"].tolist())
+
+    # Find spans that are considered roots of this particular segment of the trace.
+    # A span is a root if its parentSpanID is NaN/None, or if its parentSpanID
+    # is not present among any other spanID within this 'one_trace' DataFrame.
+    potential_root_spans = trace_to_analyze[
+        trace_to_analyze["parentSpanID"].isna() |
+        (~trace_to_analyze["parentSpanID"].isin(all_span_ids_in_trace))
+    ].sort_values("startTimeMillis")
+
+    if not potential_root_spans.empty:
+        # Take the earliest potential root as the starting point for printing
+        root_span_id_to_start_from = potential_root_spans.iloc[0]["spanID"]
+
+        # Function to print a span and its children recursively
+        def print_span(current_span_id, indent=0):
+            span = span_details_map[current_span_id]
+
+            status_text = span["statusCode"]
+            if pd.isna(status_text):
+                status_text = "OK" # Common convention for unspecified status
+
+            print(
+                "  " * indent +
+                f"[{span['serviceName']}] "
+                f"{span['operationName']} "
+                f"({span['duration']}us, +" # Duration is in microseconds
+                f"{span['relative_start_ms']}ms from trace start)"
+                f" Status: {status_text}"
+            )
+
+            # Find children of the current span that are also in this trace
+            children = trace_to_analyze[trace_to_analyze["parentSpanID"] == current_span_id]
+            for _, child_span in children.sort_values("startTimeMillis").iterrows():
+                print_span(child_span["spanID"], indent + 1)
+
+        print_span(root_span_id_to_start_from)
+    else:
+        print("Warning: No clear root span found for this trace segment. It might be part of a larger trace or broken.")
+        if not trace_to_analyze.empty:
+            print("Displaying all spans flat for examination:")
+            for _, span in trace_to_analyze.iterrows():
+                status_text = span["statusCode"]
+                if pd.isna(status_text):
+                    status_text = "OK"
+                print(
+                    f"[{span['serviceName']}] "
+                    f"{span['operationName']} "
+                    f"({span['duration']}us, +"
+                    f"{span['relative_start_ms']}ms from trace start)"
+                    f" Status: {status_text}"
+                )
+        else:
+            print("Trace is empty.")
+else:
+    print("No sample_trace_id was available for detailed analysis.")
+
+
+--- code ---
+import pandas as pd
+
+# Assuming one_trace and sample_trace_id are available from previous cells
+if sample_trace_id:
+    print(f"Analyzing trace ID: {sample_trace_id}\n")
+
+    # Calculate relative start time within the trace
+    min_start_time = one_trace["startTimeMillis"].min()
+    # Ensure we are working on a copy to avoid SettingWithCopyWarning
+    trace_to_analyze = one_trace.copy()
+    trace_to_analyze["relative_start_ms"] = trace_to_analyze["startTimeMillis"] - min_start_time
+
+    # Create a dictionary for quick lookup of spans by spanID
+    span_details_map = {row["spanID"]: row for _, row in trace_to_analyze.iterrows()}
+
+    # Identify all spanIDs present in this trace
+    all_span_ids_in_trace = set(trace_to_analyze["spanID"].tolist())
+
+    # Find spans that are considered roots of this particular segment of the trace.
+    # A span is a root if its parentSpanID is NaN/None, or if its parentSpanID
+    # is not present among any other spanID within this 'one_trace' DataFrame.
+    potential_root_spans = trace_to_analyze[
+        trace_to_analyze["parentSpanID"].isna() |
+        (~trace_to_analyze["parentSpanID"].isin(all_span_ids_in_trace))
+    ].sort_values("startTimeMillis")
+
+    if not potential_root_spans.empty:
+        # Take the earliest potential root as the starting point for printing
+        root_span_id_to_start_from = potential_root_spans.iloc[0]["spanID"]
+
+        # Function to print a span and its children recursively
+        def print_span(current_span_id, indent=0):
+            span = span_details_map[current_span_id]
+
+            status_text = span["statusCode"]
+            if pd.isna(status_text):
+                status_text = "OK" # Common convention for unspecified status
+
+            print(
+                "  " * indent +
+                f"[{span['serviceName']}] "
+                f"{span['operationName']} "
+                f"({span['duration']}us, +" # Duration is in microseconds
+                f"{span['relative_start_ms']}ms from trace start)"
+                f" Status: {status_text}"
+            )
+
+            # Find children of the current span that are also in this trace
+            children = trace_to_analyze[trace_to_analyze["parentSpanID"] == current_span_id]
+            for _, child_span in children.sort_values("startTimeMillis").iterrows():
+                print_span(child_span["spanID"], indent + 1)
+
+        print_span(root_span_id_to_start_from)
+    else:
+        print("Warning: No clear root span found for this trace segment. It might be part of a larger trace or broken.")
+        if not trace_to_analyze.empty:
+            print("Displaying all spans flat for examination:")
+            for _, span in trace_to_analyze.iterrows():
+                status_text = span["statusCode"]
+                if pd.isna(status_text):
+                    status_text = "OK"
+                print(
+                    f"[{span['serviceName']}] "
+                    f"{span['operationName']} "
+                    f"({span['duration']}us, +"
+                    f"{span['relative_start_ms']}ms from trace start)"
+                    f" Status: {status_text}"
+                )
+        else:
+            print("Trace is empty.")
+else:
+    print("No sample_trace_id was available for detailed analysis.")
+
+
+--- code ---
+def normalize_trace_time(traces, inject_time):
+    ...
+
+--- code ---
+def normalize_trace_time(traces, inject_time):
+    traces = traces.copy()
+
+    # Convert milliseconds to Unix seconds
+    traces["timestamp"] = traces["startTimeMillis"] / 1000
+
+    # Time relative to fault injection
+    traces["relative_time"] = traces["timestamp"] - inject_time
+
+    return traces
+
+--- code ---
+traces = normalize_trace_time(
+    traces,
+    inject_time=1705354566
+)
+
+--- code ---
+traces[[
+    "startTimeMillis",
+    "timestamp",
+    "relative_time"
+]].head()
+
+--- code ---
+print("Metrics:")
+print(metrics["time"].min(), metrics["time"].max())
+
+print("\nLogs:")
+print(logs["timestamp"].min(), logs["timestamp"].max())
+
+print("\nTraces:")
+print(traces["timestamp"].min(), traces["timestamp"].max())
+
+print("\nInjection:")
+print(1705354566)
+
+--- code ---
+print(
+    traces["relative_time"].min(),
+    traces["relative_time"].max()
+)
+
+--- code ---
+print("Metrics shape:", metrics.shape)
+print("Logs shape:", logs.shape)
+print("Traces shape:", traces.shape)
+
+print("\nMissing values:")
+print("Metrics:", metrics.isna().sum().sum())
+print("Logs:", logs.isna().sum().sum())
+print("Traces:", traces.isna().sum().sum())
+
+--- markdown ---
+## EDA Observations
+
+- RCAEval RE2 provides metrics, logs, and traces for the selected case.
+- The CPU metric showed a clear change around the fault injection time.
+- Checkoutservice latency did not show an equally simple synchronized change.
+- Checkoutservice log volume did not show an obvious step change around the injection point.
+- Traces provide distributed request information through traceID and parentSpanID.
+- Different telemetry sources use different timestamp representations, so timestamp normalization is required.
+- A common relative timeline is useful for incident-centered analysis.
+- The known fault-injection timestamp is available for EDA/evaluation, but a real detection system cannot assume it is known.
+
+--- code ---
+import pandas as pd
+
+
+def get_case_metadata(cases: pd.DataFrame, case_id: str) -> pd.Series:
+    """
+    Look up metadata for a single incident case.
+
+    Parameters
+    ----------
+    cases : pd.DataFrame
+        The RCAEval cases DataFrame (must contain a "case" column).
+    case_id : str
+        The case identifier to look up (e.g. "re2ob_checkoutservice_cpu_1").
+
+    Returns
+    -------
+    pd.Series
+        The row of metadata for the matching case, indexed by column name.
+
+    Raises
+    ------
+    ValueError
+        If no row matches `case_id`, or if more than one row matches
+        (which would indicate corrupted/duplicated data).
+    """
+    matches = cases[cases["case"] == case_id]
+
+    if len(matches) == 0:
+        raise ValueError(f"Case '{case_id}' not found in cases dataset.")
+
+    if len(matches) > 1:
+        raise ValueError(
+            f"Case '{case_id}' is not unique: found {len(matches)} matching rows. "
+            "Expected exactly one row per case."
+        )
+
+    return matches.iloc[0]
+
+
+# Example usage
+metadata = get_case_metadata(cases, "re2ob_checkoutservice_cpu_1")
+print(metadata)
+
+--- code ---
+import os
+import pandas as pd
+
+
+def load_case(case_id: str, cases: pd.DataFrame, base_dir: str = "/content/rcaeval_case") -> dict:
+    """
+    Load an already-downloaded RCAEval case (metadata + metrics/logs/traces).
+
+    Searches recursively under `base_dir` for a directory named `case_id`
+    and loads its metrics.parquet, logs.parquet, and traces.parquet files.
+
+    Parameters
+    ----------
+    case_id : str
+        The case identifier (e.g. "re2ob_checkoutservice_cpu_1").
+    cases : pd.DataFrame
+        The RCAEval cases DataFrame, used to fetch metadata.
+    base_dir : str, optional
+        Root directory to search for the downloaded case folder.
+
+    Returns
+    -------
+    dict
+        {
+            "metadata": pd.Series,
+            "metrics": pd.DataFrame,
+            "logs": pd.DataFrame,
+            "traces": pd.DataFrame,
+        }
+
+    Raises
+    ------
+    ValueError
+        If the case metadata cannot be found (via get_case_metadata).
+    FileNotFoundError
+        If the case directory, or any required parquet file, is missing.
+    """
+    # Step 1: metadata (reuses existing function; will raise ValueError if invalid)
+    metadata = get_case_metadata(cases, case_id)
+
+    # Step 2: locate the case directory recursively under base_dir
+    case_dir = None
+    for root, dirs, _ in os.walk(base_dir):
+        if case_id in dirs:
+            case_dir = os.path.join(root, case_id)
+            break
+
+    if case_dir is None:
+        raise FileNotFoundError(
+            f"Could not find a directory named '{case_id}' under '{base_dir}'. "
+            "Make sure the case has been downloaded first."
+        )
+
+    # Step 3: load required parquet files
+    required_files = {
+        "metrics": "metrics.parquet",
+        "logs": "logs.parquet",
+        "traces": "traces.parquet",
+    }
+
+    data = {"metadata": metadata}
+
+    for key, filename in required_files.items():
+        file_path = os.path.join(case_dir, filename)
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(
+                f"Missing required file '{filename}' for case '{case_id}' "
+                f"in directory '{case_dir}'."
+            )
+        data[key] = pd.read_parquet(file_path)
+
+    return data
+
+
+# Example usage
+case_data = load_case("re2ob_checkoutservice_cpu_1", cases)
+print(case_data["metadata"])
+print(case_data["metrics"].shape, case_data["logs"].shape, case_data["traces"].shape)
+
+--- code ---
+import pandas as pd
+
+
+def normalize_timestamps(case_data: dict) -> dict:
+    """
+    Add a common `timestamp` column (Unix seconds, as float) to metrics,
+    logs, and traces DataFrames, without modifying the input in place.
+
+    - metrics: `timestamp` copied from `time` (already seconds)
+    - logs: `timestamp` copied from `timestamp` (already seconds)
+    - traces: `timestamp` derived from `startTimeMillis / 1000`
+
+    Original columns are preserved unchanged.
+
+    Parameters
+    ----------
+    case_data : dict
+        Output of load_case(), with keys "metadata", "metrics", "logs", "traces".
+
+    Returns
+    -------
+    dict
+        New dict with the same keys; metrics/logs/traces are copies with an
+        added `timestamp` column. metadata is passed through unchanged.
+    """
+    metrics = case_data["metrics"].copy()
+    logs = case_data["logs"].copy()
+    traces = case_data["traces"].copy()
+
+    metrics["timestamp"] = metrics["time"]
+    logs["timestamp"] = logs["timestamp"]  # already the source column; kept explicit for clarity
+    traces["timestamp"] = traces["startTimeMillis"] / 1000
+
+    return {
+        "metadata": case_data["metadata"],
+        "metrics": metrics,
+        "logs": logs,
+        "traces": traces,
+    }
+
+
+# Example usage
+normalized_case_data = normalize_timestamps(case_data)
+print(normalized_case_data["metrics"][["time", "timestamp"]].head())
+print(normalized_case_data["logs"][["timestamp"]].head())
+print(normalized_case_data["traces"][["startTimeMillis", "timestamp"]].head())
+
+--- code ---
+def add_relative_time(case_data: dict) -> dict:
+    """
+    Add a `relative_time` column (timestamp - inject_time) to metrics,
+    logs, and traces DataFrames, without modifying the input in place.
+
+    relative_time is measured in seconds, anchored to the incident's
+    injection time from case_data["metadata"]["inject_time"].
+
+    Parameters
+    ----------
+    case_data : dict
+        Output of normalize_timestamps(), with keys
+        "metadata", "metrics", "logs", "traces", each telemetry
+        DataFrame already containing a `timestamp` column.
+
+    Returns
+    -------
+    dict
+        New dict with the same keys; metrics/logs/traces are copies with
+        an added `relative_time` column. metadata is passed through unchanged.
+    """
+    inject_time = case_data["metadata"]["inject_time"]
+
+    metrics = case_data["metrics"].copy()
+    logs = case_data["logs"].copy()
+    traces = case_data["traces"].copy()
+
+    metrics["relative_time"] = metrics["timestamp"] - inject_time
+    logs["relative_time"] = logs["timestamp"] - inject_time
+    traces["relative_time"] = traces["timestamp"] - inject_time
+
+    return {
+        "metadata": case_data["metadata"],
+        "metrics": metrics,
+        "logs": logs,
+        "traces": traces,
+    }
+
+
+# Example usage
+case_data_with_rt = add_relative_time(normalized_case_data)
+print(case_data_with_rt["metrics"][["timestamp", "relative_time"]].head())
+print(case_data_with_rt["logs"][["timestamp", "relative_time"]].head())
+print(case_data_with_rt["traces"][["timestamp", "relative_time"]].head())
+
+--- code ---
+print("METRICS")
+print(case_data_with_rt["metrics"].columns.tolist())
+
+print("\nLOGS")
+print(case_data_with_rt["logs"].columns.tolist())
+
+print("\nTRACES")
+print(case_data_with_rt["traces"].columns.tolist())
+
+--- code ---
+print(case_data_with_rt["metrics"].head(3))
+print(case_data_with_rt["logs"].head(3))
+print(case_data_with_rt["traces"].head(3))
+
+--- code ---
+metrics = case_data_with_rt["metrics"]
+
+metric_columns = [
+    c for c in metrics.columns
+    if c not in ["time", "timestamp", "relative_time"]
+]
+
+print("Number of metric columns:", len(metric_columns))
+
+for c in metric_columns:
+    print(c)
+
+--- code ---
+logs["message"].value_counts().head(20)
+
+--- code ---
+traces["statusCode"].value_counts()
+
+--- code ---
+print(logs["container_name"].nunique())
+print(traces["serviceName"].nunique())
+
+--- code ---
+metrics = case_data_with_rt["metrics"]
+
+services = sorted(set(
+    c.rsplit("_", 1)[0]
+    for c in metrics.columns
+    if "_" in c and c not in ["relative_time"]
+))
+
+print("Possible service names:")
+for service in services:
+    print(service)
+
+--- code ---
+print("Metric shape:", metrics.shape)
+
+print("\nMissing values:")
+print(metrics.isna().sum().sum())
+
+print("\nDuplicate timestamps:")
+print(metrics["timestamp"].duplicated().sum())
+
+print("\nTimestamp range:")
+print(metrics["relative_time"].min(), "to", metrics["relative_time"].max())
+
+--- code ---
+missing = metrics.isna().sum()
+
+print(missing[missing > 0])
+
+--- code ---
+metrics = case_data_with_rt["metrics"]
+
+cols = [
+    "relative_time",
+    "checkoutservice_cpu",
+    "frontend_cpu",
+    "cartservice_cpu",
+    "recommendationservice_cpu"
+]
+
+print(
+    metrics[
+        (metrics["relative_time"] >= -60) &
+        (metrics["relative_time"] <= 60)
+    ][cols].head(20)
+)
+
+--- code ---
+print(
+    metrics[
+        (metrics["relative_time"] >= -10) &
+        (metrics["relative_time"] <= 30)
+    ][cols]
+)
+
+--- code ---
+for col in [
+    "recommendationservice_cpu",
+    "redis_cpu",
+    "recommendationservice_diskio",
+    "redis_diskio"
+]:
+    print("\n", col)
+    print(
+        metrics.loc[
+            metrics[col].isna(),
+            ["relative_time", col]
+        ]
+    )
+
+--- code ---
+print(cases.columns.tolist())
+
+--- code ---
+display(
+    cases[
+        [
+            "case",
+            "dataset",
+            "root_cause_service",
+            "fault"
+        ]
+    ].head(30)
+)
+
+--- code ---
+print("Root-cause services:")
+display(cases["root_cause_service"].value_counts())
+
+print("\nFault types:")
+display(cases["fault"].value_counts())
+
+print("\nService × Fault:")
+display(
+    cases.groupby(
+        ["root_cause_service", "fault"]
+    ).size().reset_index(name="count")
+)
+
+--- code ---
+cpu_cases = cases[cases["fault"] == "cpu"]
+
+display(
+    cpu_cases[
+        [
+            "case",
+            "root_cause_service",
+            "fault",
+            "repetition"
+        ]
+    ].head(20)
+)
+
+--- code ---
+from pathlib import Path
+
+base_dir = Path("/content/rcaeval_case")
+
+available_cases = [
+    p.name
+    for p in base_dir.rglob("*")
+    if p.is_dir() and (p / "metrics.parquet").exists()
+]
+
+print("Available local cases:", len(available_cases))
+print(available_cases[:30])
+
+--- code ---
+print("Dataset distribution:")
+display(cases["dataset"].value_counts())
+
+print("\nSuite distribution:")
+display(cases["suite"].value_counts())
+
+print("\nDataset × suite:")
+display(
+    cases.groupby(["dataset", "suite"])
+         .size()
+         .reset_index(name="count")
+)
+
+--- code ---
+display(
+    cases.groupby(["dataset", "fault"])
+         .size()
+         .unstack(fill_value=0)
+)
+
+--- code ---
+re2ob = cases[cases["dataset"] == "RE2-OB"]
+
+print("RE2-OB cases:", len(re2ob))
+
+print("\nRoot-cause services:")
+display(
+    re2ob["root_cause_service"].value_counts()
+)
+
+print("\nService × Fault:")
+display(
+    re2ob.groupby(
+        ["root_cause_service", "fault"]
+    ).size().reset_index(name="count")
+)
+
+--- code ---
+[name for name in globals() if "download" in name.lower() or "case" in name.lower()]
+
+--- code ---
+print(snapshot_download)
+
+--- code ---
+import inspect
+
+print(inspect.getsource(snapshot_download))
+
+--- code ---
+print("Current case directory:")
+print(case_dir)
+
+print("\nCurrent selected case:")
+print(selected_case)
+
+--- code ---
+import os
+
+print("\nFiles/folders around case directory:")
+for item in os.listdir("/content/rcaeval_case"):
+    print(item)
+
+--- code ---
+from pathlib import Path
+
+cache_dir = Path("/content/rcaeval_case/.cache")
+
+for path in cache_dir.rglob("*"):
+    if path.is_file():
+        print(path)
+
+--- code ---
+import json
+
+tree_file = "/content/rcaeval_case/.cache/huggingface/trees/afeacb11bcc94dadfd1c8f483ee4377b2b8b614e.json"
+
+with open(tree_file, "r") as f:
+    tree_data = json.load(f)
+
+print(json.dumps(tree_data, indent=2)[:10000])
+
+--- code ---
+download_check = snapshot_download(
+    repo_id="phamquiluan/RCAEval",
+    repo_type="dataset",
+    local_dir="/content/rcaeval_case",
+    allow_patterns=[
+        "re2ob_checkoutservice_cpu_2/*",
+        "re2ob_checkoutservice_cpu_3/*"
+    ],
+    dry_run=True
+)
+
+for item in download_check:
+    print(item)
+
+--- code ---
+snapshot_download(
+    repo_id="phamquiluan/RCAEval",
+    repo_type="dataset",
+    local_dir="/content/rcaeval_case",
+    allow_patterns=[
+        "re2ob_checkoutservice_cpu_2/*",
+        "re2ob_checkoutservice_cpu_3/*"
+    ]
+)
+
+print("Download complete.")
+
+--- code ---
+available_cases = sorted([
+    d for d in os.listdir("/content/rcaeval_case")
+    if os.path.isdir(os.path.join("/content/rcaeval_case", d))
+    and not d.startswith(".")
+])
+
+print("Available cases:")
+for case in available_cases:
+    print(case)
+
+--- code ---
+cpu_cases = {}
+
+for case_id in [
+    "re2ob_checkoutservice_cpu_1",
+    "re2ob_checkoutservice_cpu_2",
+    "re2ob_checkoutservice_cpu_3"
+]:
+    cpu_cases[case_id] = load_case(
+        case_id,
+        cases,
+        base_dir="/content/rcaeval_case"
+    )
+
+    print(
+        case_id,
+        "→",
+        "metrics:", cpu_cases[case_id]["metrics"].shape,
+        "logs:", cpu_cases[case_id]["logs"].shape,
+        "traces:", cpu_cases[case_id]["traces"].shape
+    )
+
+--- code ---
+cpu_cases_rt = {}
+
+for case_id, data in cpu_cases.items():
+    normalized = normalize_timestamps(data)
+    cpu_cases_rt[case_id] = add_relative_time(normalized)
+
+print("Done.")
+
+--- code ---
+cpu_cases_rt = {}
+
+for case_id, data in cpu_cases.items():
+    normalized = normalize_timestamps(data)
+    cpu_cases_rt[case_id] = add_relative_time(normalized)
+
+    print(
+        case_id,
+        "→",
+        "relative time:",
+        cpu_cases_rt[case_id]["metrics"]["relative_time"].min(),
+        "to",
+        cpu_cases_rt[case_id]["metrics"]["relative_time"].max()
+    )
+
+--- code ---
+for case_id, data in cpu_cases_rt.items():
+
+    metrics = data["metrics"]
+
+    print("\n" + "=" * 70)
+    print(case_id)
+
+    print(
+        metrics.loc[
+            metrics["relative_time"].between(-10, 30),
+            ["relative_time", "checkoutservice_cpu"]
+        ].to_string(index=False)
+    )
+
+--- code ---
+import os
+
+for root, dirs, files in os.walk("/content/rcaeval_case"):
+    for file in files:
+        if file == "metrics.parquet" and "checkoutservice_delay" in root:
+            print(os.path.join(root, file))
+
+--- code ---
+delay_check = snapshot_download(
+    repo_id="phamquiluan/RCAEval",
+    repo_type="dataset",
+    local_dir="/content/rcaeval_case",
+    allow_patterns=[
+        "re2ob_checkoutservice_delay_1/*",
+        "re2ob_checkoutservice_delay_2/*",
+        "re2ob_checkoutservice_delay_3/*"
+    ],
+    dry_run=True
+)
+
+for item in delay_check:
+    print(item)
+
+--- code ---
+snapshot_download(
+    repo_id="phamquiluan/RCAEval",
+    repo_type="dataset",
+    local_dir="/content/rcaeval_case",
+    allow_patterns=[
+        "re2ob_checkoutservice_delay_1/*",
+        "re2ob_checkoutservice_delay_2/*",
+        "re2ob_checkoutservice_delay_3/*"
+    ]
+)
+
+print("Download complete.")
+
+--- code ---
+for case_id in [
+    "re2ob_checkoutservice_delay_1",
+    "re2ob_checkoutservice_delay_2",
+    "re2ob_checkoutservice_delay_3"
+]:
+    print(
+        case_id,
+        "→",
+        os.path.exists(
+            f"/content/rcaeval_case/{case_id}/metrics.parquet"
+        )
+    )
+
+--- code ---
+
+
+--- code ---
+delay_cases = {}
+
+for case_id in [
+    "re2ob_checkoutservice_delay_1",
+    "re2ob_checkoutservice_delay_2",
+    "re2ob_checkoutservice_delay_3"
+]:
+    delay_cases[case_id] = load_case(
+        case_id,
+        cases,
+        base_dir="/content/rcaeval_case"
+    )
+
+    print(
+        case_id,
+        "→",
+        "metrics:", delay_cases[case_id]["metrics"].shape,
+        "logs:", delay_cases[case_id]["logs"].shape,
+        "traces:", delay_cases[case_id]["traces"].shape
+    )
+
+--- code ---
+delay_cases_rt = {}
+
+for case_id, data in delay_cases.items():
+    normalized = normalize_timestamps(data)
+    delay_cases_rt[case_id] = add_relative_time(normalized)
+
+    print(
+        case_id,
+        "→",
+        "relative time:",
+        delay_cases_rt[case_id]["metrics"]["relative_time"].min(),
+        "to",
+        delay_cases_rt[case_id]["metrics"]["relative_time"].max()
+    )
+
+--- code ---
+for case_id, data in delay_cases_rt.items():
+    metrics = data["metrics"]
+
+    metric_cols = [
+        c for c in metrics.columns
+        if c not in ["time", "timestamp", "relative_time"]
+    ]
+
+    print("\n" + "=" * 70)
+    print(case_id)
+    print("Number of metrics:", len(metric_cols))
+
+    print("\nMetrics related to checkoutservice:")
+    for col in metric_cols:
+        if "checkoutservice" in col.lower():
+            print(col)
+
+--- code ---
+for case_id, data in delay_cases_rt.items():
+
+    metrics = data["metrics"]
+
+    print("\n" + "=" * 80)
+    print(case_id)
+
+    print(
+        metrics.loc[
+            metrics["relative_time"].between(-10, 30),
+            [
+                "relative_time",
+                "checkoutservice_latency-50",
+                "checkoutservice_latency-90",
+                "checkoutservice_workload",
+                "checkoutservice_cpu"
+            ]
+        ].to_string(index=False)
+    )
+
+--- code ---
+currency_check = snapshot_download(
+    repo_id="phamquiluan/RCAEval",
+    repo_type="dataset",
+    local_dir="/content/rcaeval_case",
+    allow_patterns=[
+        "re2ob_currencyservice_cpu_1/*",
+        "re2ob_currencyservice_cpu_2/*",
+        "re2ob_currencyservice_cpu_3/*"
+    ],
+    dry_run=True
+)
+
+for item in currency_check:
+    print(item)
+
+--- code ---
+snapshot_download(
+    repo_id="phamquiluan/RCAEval",
+    repo_type="dataset",
+    local_dir="/content/rcaeval_case",
+    allow_patterns=[
+        "re2ob_currencyservice_cpu_1/*",
+        "re2ob_currencyservice_cpu_2/*",
+        "re2ob_currencyservice_cpu_3/*"
+    ]
+)
+
+print("Download complete.")
+
+--- code ---
+for case_id in [
+    "re2ob_currencyservice_cpu_1",
+    "re2ob_currencyservice_cpu_2",
+    "re2ob_currencyservice_cpu_3"
+]:
+    print(
+        case_id,
+        "→",
+        os.path.exists(
+            f"/content/rcaeval_case/{case_id}/metrics.parquet"
+        )
+    )
+
+--- code ---
+currency_cases = {}
+
+for case_id in [
+    "re2ob_currencyservice_cpu_1",
+    "re2ob_currencyservice_cpu_2",
+    "re2ob_currencyservice_cpu_3"
+]:
+    case_data = load_case(
+        case_id,
+        cases,
+        base_dir="/content/rcaeval_case"
+    )
+
+    case_data = normalize_timestamps(case_data)
+    case_data = add_relative_time(case_data)
+
+    currency_cases[case_id] = case_data
+
+    print(
+        case_id,
+        "→ metrics:", case_data["metrics"].shape,
+        "| logs:", case_data["logs"].shape,
+        "| traces:", case_data["traces"].shape,
+        "| time:",
+        case_data["metrics"]["relative_time"].min(),
+        "to",
+        case_data["metrics"]["relative_time"].max()
+    )
+
+--- code ---
+for case_id, case_data in currency_cases.items():
+    metrics = case_data["metrics"]
+
+    cpu = metrics[
+        (metrics["relative_time"] >= -10) &
+        (metrics["relative_time"] <= 30)
+    ][["relative_time", "currencyservice_cpu"]]
+
+    print("\n", "=" * 60)
+    print(case_id)
+    print("=" * 60)
+
+    print(cpu.to_string(index=False))
+
+--- code ---
+WINDOW_SIZES = [10, 30, 60]
+
+for case_id, case_data in currency_cases.items():
+    times = case_data["metrics"]["relative_time"]
+
+    print(f"\n{case_id}")
+
+    for window in WINDOW_SIZES:
+        start = times.min()
+        end = times.max()
+
+        n_windows = int((end - start) // window)
+
+        print(f"{window}s window → {n_windows} windows")
+
+--- code ---
+for window in [10, 30, 60]:
+    print(f"\n{'='*50}")
+    print(f"WINDOW: {window} seconds")
+    print(f"{'='*50}")
+
+    for case_id, case_data in currency_cases.items():
+        metrics = case_data["metrics"]
+
+        # Baseline: -60 to -1 seconds
+        baseline = metrics[
+            (metrics["relative_time"] >= -60) &
+            (metrics["relative_time"] < 0)
+        ]["currencyservice_cpu"].median()
+
+        # Post-injection window
+        post = metrics[
+            (metrics["relative_time"] >= 0) &
+            (metrics["relative_time"] < window)
+        ]["currencyservice_cpu"].median()
+
+        change = post - baseline
+
+        print(
+            f"{case_id}: "
+            f"baseline={baseline:.2f}, "
+            f"post={post:.2f}, "
+            f"change={change:.2f}"
+        )
+
+--- code ---
+for case_id, case_data in currency_cases.items():
+    metrics = case_data["metrics"]
+
+    print(f"\n{'='*60}")
+    print(case_id)
+    print(f"{'='*60}")
+
+    baseline = metrics[
+        (metrics["relative_time"] >= -60) &
+        (metrics["relative_time"] < 0)
+    ]["currencyservice_cpu"].median()
+
+    for start in range(0, 121, 30):
+        end = start + 30
+
+        values = metrics[
+            (metrics["relative_time"] >= start) &
+            (metrics["relative_time"] < end)
+        ]["currencyservice_cpu"]
+
+        if len(values) > 0:
+            median = values.median()
+            change = median - baseline
+
+            print(
+                f"{start:>3}s → {end:>3}s | "
+                f"median={median:.2f} | "
+                f"change={change:+.2f}"
+            )
+
+--- code ---
+def get_baseline(metrics, baseline_seconds=60):
+    baseline_data = metrics[
+        (metrics["relative_time"] >= -baseline_seconds) &
+        (metrics["relative_time"] < 0)
+    ]
+
+    numeric_columns = baseline_data.select_dtypes(
+        include="number"
+    ).columns
+
+    excluded_columns = [
+        "time",
+        "timestamp",
+        "relative_time"
+    ]
+
+    numeric_columns = [
+        col for col in numeric_columns
+        if col not in excluded_columns
+    ]
+
+    return baseline_data[numeric_columns].median()
+
+
+# Test
+baseline = get_baseline(
+    currency_cases["re2ob_currencyservice_cpu_1"]["metrics"]
+)
+
+print(baseline.head(10))
+print("\nNumber of baseline metrics:", len(baseline))
+
+--- code ---
+import numpy as np
+
+def calculate_trend(values):
+    values = values.dropna()
+
+    if len(values) < 2:
+        return 0.0
+
+    x = np.arange(len(values))
+
+    return np.polyfit(x, values.values, 1)[0]
+
+--- code ---
+def extract_window_features(
+    metrics,
+    baseline,
+    window_start,
+    window_size=30
+):
+    window_end = window_start + window_size
+
+    window_data = metrics[
+        (metrics["relative_time"] >= window_start) &
+        (metrics["relative_time"] < window_end)
+    ]
+
+    features = {}
+
+    for col in baseline.index:
+        values = window_data[col].dropna()
+
+        if len(values) == 0:
+            features[f"{col}_mean"] = np.nan
+            features[f"{col}_max"] = np.nan
+            features[f"{col}_delta"] = np.nan
+            features[f"{col}_trend"] = 0.0
+            continue
+
+        features[f"{col}_mean"] = values.mean()
+        features[f"{col}_max"] = values.max()
+        features[f"{col}_delta"] = (
+            values.mean() - baseline[col]
+        )
+        features[f"{col}_trend"] = calculate_trend(values)
+
+    return features
+
+
+# Test again
+features = extract_window_features(
+    metrics,
+    baseline,
+    window_start=0,
+    window_size=30
+)
+
+print("Number of features:", len(features))
+
+for name, value in list(features.items())[:20]:
+    print(name, "=", value)
+
+--- code ---
+import numpy as np
+
+def calculate_trend(values):
+    values = values.dropna()
+
+    if len(values) < 2:
+        return 0.0
+
+    x = np.arange(len(values))
+
+    return np.polyfit(x, values.values, 1)[0]
+
+
+# Test on currencyservice CPU
+window_data = metrics[
+    (metrics["relative_time"] >= 0) &
+    (metrics["relative_time"] < 30)
+]
+
+trend = calculate_trend(
+    window_data["currencyservice_cpu"]
+)
+
+print("Currencyservice CPU trend:", trend)
+
+--- markdown ---
+**Reasoning**:
+I will define three new helper functions: `_calculate_rolling_stats`, `_calculate_temporal_derivatives`, and `_calculate_fft_features` to generate advanced time-series features. Then, I will modify the `extract_window_features` function to incorporate these new features.
+
+
+
+--- code ---
+import numpy as np
+from scipy.fft import fft
+
+def _calculate_rolling_stats(values, prefix, window_size=5):
+    features = {}
+    if len(values) == 0:
+        features[f'{prefix}_roll{window_size}_mean'] = np.nan
+        features[f'{prefix}_roll{window_size}_std'] = np.nan
+        features[f'{prefix}_roll{window_size}_min'] = np.nan
+        features[f'{prefix}_roll{window_size}_max'] = np.nan
+        return features
+
+    # Ensure values is a Series for rolling methods
+    values_series = pd.Series(values)
+
+    rolling_mean = values_series.rolling(window=window_size, min_periods=1).mean().iloc[-1]
+    rolling_std = values_series.rolling(window=window_size, min_periods=1).std().iloc[-1]
+    rolling_min = values_series.rolling(window=window_size, min_periods=1).min().iloc[-1]
+    rolling_max = values_series.rolling(window=window_size, min_periods=1).max().iloc[-1]
+
+    features[f'{prefix}_roll{window_size}_mean'] = rolling_mean
+    features[f'{prefix}_roll{window_size}_std'] = rolling_std
+    features[f'{prefix}_roll{window_size}_min'] = rolling_min
+    features[f'{prefix}_roll{window_size}_max'] = rolling_max
+    return features
+
+
+def _calculate_temporal_derivatives(values, prefix):
+    features = {}
+    if len(values) < 2:
+        features[f'{prefix}_diff1_mean'] = np.nan
+        features[f'{prefix}_diff2_mean'] = np.nan
+        features[f'{prefix}_rate_of_change_mean'] = np.nan
+        return features
+
+    # First-order difference
+    diff1 = values.diff(1).dropna()
+    features[f'{prefix}_diff1_mean'] = diff1.mean() if len(diff1) > 0 else np.nan
+
+    # Second-order difference
+    if len(values) >= 3:
+        diff2 = values.diff(2).dropna()
+        features[f'{prefix}_diff2_mean'] = diff2.mean() if len(diff2) > 0 else np.nan
+    else:
+        features[f'{prefix}_diff2_mean'] = np.nan
+
+    # Rate of change
+    rate_of_change = (values.diff(1) / values.shift(1)).replace([np.inf, -np.inf], np.nan).dropna()
+    features[f'{prefix}_rate_of_change_mean'] = rate_of_change.mean() if len(rate_of_change) > 0 else np.nan
+
+    return features
+
+
+def _calculate_fft_features(values, prefix, min_fft_points=10):
+    features = {}
+    if len(values) < min_fft_points:
+        features[f'{prefix}_fft_power'] = np.nan
+        features[f'{prefix}_fft_dominant_magnitude'] = np.nan
+        return features
+
+    # Compute FFT
+    yf = fft(values.values)
+    # Exclude DC component (0th frequency bin)
+    magnitudes = np.abs(yf[1:len(values)//2])
+
+    if len(magnitudes) == 0:
+        features[f'{prefix}_fft_power'] = np.nan
+        features[f'{prefix}_fft_dominant_magnitude'] = np.nan
+        return features
+
+    total_power = np.sum(magnitudes**2)
+    dominant_magnitude = np.max(magnitudes)
+
+    features[f'{prefix}_fft_power'] = total_power
+    features[f'{prefix}_fft_dominant_magnitude'] = dominant_magnitude
+    return features
+
+
+def extract_window_features(metrics, baseline, window_start, window_size=30):
+    window_end = window_start + window_size
+
+    window_data = metrics[
+        (metrics["relative_time"] >= window_start) &
+        (metrics["relative_time"] < window_end)
+    ]
+
+    features = {}
+
+    # Identify metric columns excluding time/timestamp/relative_time
+    metric_cols = [
+        col for col in metrics.columns
+        if col not in ["time", "timestamp", "relative_time"]
+    ]
+
+    for col in metric_cols:
+        values = window_data[col].dropna()
+
+        if len(values) == 0:
+            # Assign NaN for all features if no data points
+            features[f"{col}_mean"] = np.nan
+            features[f"{col}_max"] = np.nan
+            features[f"{col}_delta"] = np.nan
+            features[f"{col}_trend"] = np.nan # Changed to nan from 0.0
+
+            # New features - assign NaN
+            features.update(_calculate_rolling_stats(pd.Series(), col)) # Pass empty Series
+            features.update(_calculate_temporal_derivatives(pd.Series(), col)) # Pass empty Series
+            features.update(_calculate_fft_features(pd.Series(), col)) # Pass empty Series
+            continue
+
+        # Original features
+        features[f"{col}_mean"] = values.mean()
+        features[f"{col}_max"] = values.max()
+        features[f"{col}_delta"] = (
+            values.mean() - baseline.get(col, np.nan) # Use .get with default nan
+        )
+        features[f"{col}_trend"] = calculate_trend(values)
+
+        # Add new advanced time-series features
+        features.update(_calculate_rolling_stats(values, col))
+        features.update(_calculate_temporal_derivatives(values, col))
+        features.update(_calculate_fft_features(values, col))
+
+    return features
+
+print("New feature engineering functions defined and 'extract_window_features' modified.")
+
+--- markdown ---
+**Reasoning**:
+I need to ensure that the newly added feature engineering functions are correctly integrated and working as expected. Re-running the `generate_case_windows` function on a sample case will allow me to inspect the shape and columns of the generated windows, confirming the presence of the new features.
+
+
+
+--- code ---
+case_windows = generate_case_windows(
+    currency_cases["re2ob_currencyservice_cpu_1"]
+)
+
+print("Shape:", case_windows.shape)
+print("\nNumber of columns:", len(case_windows.columns))
+
+print("\nFirst few columns (including new feature types):")
+display(
+    case_windows.loc[
+        :,
+        case_windows.columns.str.contains(
+            "currencyservice_cpu_mean|"
+            "currencyservice_cpu_max|"
+            "currencyservice_cpu_delta|"
+            "currencyservice_cpu_trend|"
+            "currencyservice_cpu_roll5_mean|"
+            "currencyservice_cpu_diff1_mean|"
+            "currencyservice_cpu_fft_power|"
+            "window_start|window_end"
+        )
+    ].head()
+)
+
+--- markdown ---
+**Reasoning**:
+I need to ensure that the newly modified `generate_case_windows` function, which now includes advanced time-series features, is correctly applied to all cases. This step involves regenerating the full dataset with the new features, which is essential for comprehensive feature engineering.
+
+
+
+--- code ---
+all_windows = []
+
+for case_id, case_data in all_case_data_re2ob.items():
+
+    windows = generate_case_windows(
+        case_data,
+        window_size=30,
+        baseline_seconds=60
+    )
+
+    windows = add_window_labels(
+        windows,
+        case_data,
+        case_id
+    )
+
+    all_windows.append(windows)
+
+
+full_dataset_re2ob = pd.concat(
+    all_windows,
+    ignore_index=True,
+    sort=False
+)
+
+print("Full dataset shape:", full_dataset_re2ob.shape)
+print("Number of cases:", full_dataset_re2ob["case_id"].nunique())
+print("\nLabels:")
+print(full_dataset_re2ob["label"].value_counts())
+
+print("\nFaults:")
+print(full_dataset_re2ob["fault"].value_counts())
+
+--- code ---
+def generate_case_windows(
+    case_data,
+    window_size=30,
+    baseline_seconds=60
+):
+    metrics = case_data["metrics"]
+
+    baseline = get_baseline(
+        metrics,
+        baseline_seconds=baseline_seconds
+    )
+
+    start_time = metrics["relative_time"].min()
+    end_time = metrics["relative_time"].max()
+
+    windows = []
+
+    window_start = start_time
+
+    while window_start + window_size <= end_time:
+        features = extract_window_features(
+            metrics,
+            baseline,
+            window_start,
+            window_size
+        )
+
+        features["window_start"] = window_start
+        features["window_end"] = window_start + window_size
+
+        windows.append(features)
+
+        window_start += window_size
+
+    return pd.DataFrame(windows)
+
+
+# Test on one case
+case_windows = generate_case_windows(
+    currency_cases["re2ob_currencyservice_cpu_1"]
+)
+
+print("Shape:", case_windows.shape)
+print("\nColumns:", len(case_windows.columns))
+print("\nFirst windows:")
+print(
+    case_windows[
+        ["window_start", "window_end",
+         "currencyservice_cpu_mean",
+         "currencyservice_cpu_delta",
+         "currencyservice_cpu_trend"]
+    ].head()
+)
+
+--- code ---
+for case_id in [
+    "re2ob_currencyservice_cpu_1",
+    "re2ob_currencyservice_cpu_2",
+    "re2ob_currencyservice_cpu_3"
+]:
+    case_windows = generate_case_windows(
+        currency_cases[case_id]
+    )
+
+    print(f"\n{'='*60}")
+    print(case_id)
+    print(f"{'='*60}")
+
+    print(
+        case_windows[
+            (case_windows["window_start"] >= -60) &
+            (case_windows["window_start"] <= 120)
+        ][
+            [
+                "window_start",
+                "window_end",
+                "currencyservice_cpu_delta",
+                "currencyservice_cpu_trend"
+            ]
+        ].to_string(index=False)
+    )
+
+--- code ---
+case_ids = [
+    "re2ob_checkoutservice_cpu_1",
+    "re2ob_checkoutservice_cpu_2",
+    "re2ob_checkoutservice_cpu_3",
+    "re2ob_checkoutservice_delay_1",
+    "re2ob_checkoutservice_delay_2",
+    "re2ob_checkoutservice_delay_3",
+    "re2ob_currencyservice_cpu_1",
+    "re2ob_currencyservice_cpu_2",
+    "re2ob_currencyservice_cpu_3"
+]
+
+print(
+    cases[cases["case"].isin(case_ids)][
+        [
+            "case",
+            "fault",
+            "root_cause_service",
+            "inject_time",
+            "normal_timesteps",
+            "faulty_timesteps"
+        ]
+    ].to_string(index=False)
+)
+
+
+--- code ---
+def add_window_labels(case_windows, case_data, case_id):
+    root_cause = case_data["metadata"]["root_cause_service"]
+    fault = case_data["metadata"]["fault"]
+
+    case_windows = case_windows.copy()
+
+    case_windows["case_id"] = case_id
+    case_windows["fault"] = fault
+
+    case_windows["label"] = np.where(
+        case_windows["window_end"] <= 0,
+        "normal",
+        root_cause
+    )
+
+    return case_windows
+
+
+# Test
+labeled_windows = add_window_labels(
+    case_windows,
+    currency_cases["re2ob_currencyservice_cpu_1"],
+    "re2ob_currencyservice_cpu_1"
+)
+
+print(
+    labeled_windows[
+        [
+            "case_id",
+            "window_start",
+            "window_end",
+            "fault",
+            "label"
+        ]
+    ].head(5)
+)
+
+print("\nLabel counts:")
+print(labeled_windows["label"].value_counts())
+
+--- code ---
+all_case_data = {}
+
+# Add checkout CPU cases
+all_case_data.update({
+    f"re2ob_checkoutservice_cpu_{i}":
+        normalize_timestamps(
+            load_case(
+                f"re2ob_checkoutservice_cpu_{i}",
+                cases,
+                base_dir="/content/rcaeval_case"
+            )
+        )
+        for i in range(1, 4)
+})
+
+# Add checkout delay cases
+all_case_data.update({
+    f"re2ob_checkoutservice_delay_{i}":
+        normalize_timestamps(
+            load_case(
+                f"re2ob_checkoutservice_delay_{i}",
+                cases,
+                base_dir="/content/rcaeval_case"
+            )
+        )
+        for i in range(1, 4)
+})
+
+# Add currency CPU cases
+all_case_data.update(currency_cases)
+
+print("Cases loaded:", len(all_case_data))
+
+--- code ---
+all_case_data = {}
+
+for case_id in [
+    "re2ob_checkoutservice_cpu_1",
+    "re2ob_checkoutservice_cpu_2",
+    "re2ob_checkoutservice_cpu_3",
+    "re2ob_checkoutservice_delay_1",
+    "re2ob_checkoutservice_delay_2",
+    "re2ob_checkoutservice_delay_3",
+]:
+    case_data = load_case(
+        case_id,
+        cases,
+        base_dir="/content/rcaeval_case"
+    )
+
+    case_data = normalize_timestamps(case_data)
+    case_data = add_relative_time(case_data)
+
+    all_case_data[case_id] = case_data
+
+
+# Currency cases are already normalized + relative time added
+all_case_data.update(currency_cases)
+
+print("Cases loaded:", len(all_case_data))
+
+for case_id, case_data in all_case_data.items():
+    print(
+        case_id,
+        "→",
+        "relative_time" in case_data["metrics"].columns
+    )
+
+--- code ---
+all_windows = []
+
+for case_id, case_data in all_case_data.items():
+
+    windows = generate_case_windows(
+        case_data,
+        window_size=30,
+        baseline_seconds=60
+    )
+
+    windows = add_window_labels(
+        windows,
+        case_data,
+        case_id
+    )
+
+    all_windows.append(windows)
+
+full_dataset = pd.concat(
+    all_windows,
+    ignore_index=True
+)
+
+print("Dataset shape:", full_dataset.shape)
+
+print("\nCases:", full_dataset["case_id"].nunique())
+
+print("\nLabels:")
+print(full_dataset["label"].value_counts())
+
+print("\nFaults:")
+print(full_dataset["fault"].value_counts())
+
+--- code ---
+print("Total columns:", len(full_dataset.columns))
+
+print("\nMetadata columns:")
+print([
+    col for col in full_dataset.columns
+    if col in ["window_start", "window_end", "case_id", "fault", "label"]
+])
+
+print("\nFeature columns:", len([
+    col for col in full_dataset.columns
+    if col not in ["window_start", "window_end", "case_id", "fault", "label"]
+]))
+
+print("\nFirst 20 columns:")
+print(full_dataset.columns[:20].tolist())
+
+print("\nLast 10 columns:")
+print(full_dataset.columns[-10:].tolist())
+
+--- code ---
+feature_columns = [
+    col for col in full_dataset.columns
+    if col not in [
+        "window_start",
+        "window_end",
+        "case_id",
+        "fault",
+        "label"
+    ]
+]
+
+missing = full_dataset[feature_columns].isna().sum()
+
+print("Total feature columns:", len(feature_columns))
+print("Total missing values:", missing.sum())
+
+print("\nFeatures with missing values:")
+print(missing[missing > 0])
+
+--- code ---
+feature_columns = [
+    col for col in full_dataset.columns
+    if col not in [
+        "window_start",
+        "window_end",
+        "case_id",
+        "fault",
+        "label"
+    ]
+]
+
+# Convert feature names back to their base metric names
+base_metrics = {}
+
+for col in feature_columns:
+    base_metric = col.rsplit("_", 1)[0]
+    base_metrics.setdefault(base_metric, []).append(col)
+
+print("Total base metrics:", len(base_metrics))
+
+print("\nMissing percentage by base metric:")
+
+for metric, cols in base_metrics.items():
+    missing_pct = full_dataset[cols].isna().mean().mean() * 100
+
+    if missing_pct > 0:
+        print(f"{metric}: {missing_pct:.1f}%")
+
+--- code ---
+metrics_to_remove = [
+    "InboundPassthroughClusterIpv4_workload",
+    "PassthroughCluster_workload"
+]
+
+columns_to_remove = []
+
+for metric in metrics_to_remove:
+    for feature in ["mean", "max", "delta", "trend"]:
+        columns_to_remove.append(f"{metric}_{feature}")
+
+full_dataset_clean = full_dataset.drop(
+    columns=columns_to_remove
+)
+
+print("Original shape:", full_dataset.shape)
+print("Cleaned shape:", full_dataset_clean.shape)
+
+print("\nRemoved columns:", len(columns_to_remove))
+
+--- code ---
+feature_columns = [
+    col for col in full_dataset_clean.columns
+    if col not in [
+        "window_start",
+        "window_end",
+        "case_id",
+        "fault",
+        "label"
+    ]
+]
+
+# Missing values by case
+missing_by_case = (
+    full_dataset_clean
+    .groupby("case_id")[feature_columns]
+    .apply(lambda x: x.isna().mean().mean() * 100)
+)
+
+print("Average feature missingness by case:\n")
+print(missing_by_case)
+
+--- code ---
+feature_columns = [
+    col for col in full_dataset_clean.columns
+    if col not in [
+        "window_start",
+        "window_end",
+        "case_id",
+        "fault",
+        "label"
+    ]
+]
+
+missing = (
+    full_dataset_clean[feature_columns]
+    .isna()
+    .mean() * 100
+)
+
+print("Highest missing feature percentages:\n")
+print(
+    missing[missing > 0]
+    .sort_values(ascending=False)
+    .head(20)
+)
+
+--- code ---
+print(
+    full_dataset_clean
+    .groupby("case_id")
+    .size()
+    .sort_index()
+)
+
+--- code ---
+from sklearn.model_selection import GroupShuffleSplit
+
+groups = full_dataset_clean["case_id"]
+
+splitter = GroupShuffleSplit(
+    n_splits=1,
+    test_size=0.2,
+    random_state=42
+)
+
+train_idx, test_idx = next(
+    splitter.split(
+        full_dataset_clean,
+        groups=groups
+    )
+)
+
+train_data = full_dataset_clean.iloc[train_idx].copy()
+test_data = full_dataset_clean.iloc[test_idx].copy()
+
+print("Train shape:", train_data.shape)
+print("Test shape:", test_data.shape)
+
+print("\nTrain cases:")
+print(train_data["case_id"].unique())
+
+print("\nTest cases:")
+print(test_data["case_id"].unique())
+
+print("\nCases in both sets:")
+print(
+    set(train_data["case_id"]) &
+    set(test_data["case_id"])
+)
+
+--- code ---
+feature_columns = [
+    col for col in train_data.columns
+    if col not in [
+        "window_start",
+        "window_end",
+        "case_id",
+        "fault",
+        "label"
+    ]
+]
+
+X_train = train_data[feature_columns].copy()
+X_test = test_data[feature_columns].copy()
+
+y_train = train_data["label"].copy()
+y_test = test_data["label"].copy()
+
+print("X_train:", X_train.shape)
+print("X_test:", X_test.shape)
+
+print("\ny_train:")
+print(y_train.value_counts())
+
+print("\ny_test:")
+print(y_test.value_counts())
+
+print("\nFeatures:", len(feature_columns))
+
+--- code ---
+from sklearn.impute import SimpleImputer
+
+imputer = SimpleImputer(strategy="median")
+
+X_train_imputed = imputer.fit_transform(X_train)
+X_test_imputed = imputer.transform(X_test)
+
+print("X_train after imputation:", X_train_imputed.shape)
+print("X_test after imputation:", X_test_imputed.shape)
+
+print("\nMissing values in X_train:",
+      __import__("numpy").isnan(X_train_imputed).sum())
+
+print("Missing values in X_test:",
+      __import__("numpy").isnan(X_test_imputed).sum())
+
+--- code ---
+from sklearn.preprocessing import StandardScaler
+
+scaler = StandardScaler()
+
+X_train_scaled = scaler.fit_transform(X_train_imputed)
+X_test_scaled = scaler.transform(X_test_imputed)
+
+print("X_train_scaled:", X_train_scaled.shape)
+print("X_test_scaled:", X_test_scaled.shape)
+
+print("\nTrain mean (first 5 features):")
+print(X_train_scaled[:, :5].mean(axis=0))
+
+print("\nTrain std (first 5 features):")
+print(X_train_scaled[:, :5].std(axis=0))
+
+--- code ---
+from sklearn.linear_model import LogisticRegression
+
+model = LogisticRegression(
+    max_iter=1000,
+    random_state=42
+)
+
+model.fit(X_train_scaled, y_train)
+
+train_accuracy = model.score(X_train_scaled, y_train)
+test_accuracy = model.score(X_test_scaled, y_test)
+
+print("Train accuracy:", train_accuracy)
+print("Test accuracy:", test_accuracy)
+
+--- code ---
+from sklearn.metrics import classification_report, confusion_matrix
+
+y_pred = model.predict(X_test_scaled)
+
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+
+print("\nClassification Report:")
+print(
+    classification_report(
+        y_test,
+        y_pred,
+        zero_division=0
+    )
+)
+
+--- code ---
+re2ob_cases = cases[cases["dataset"] == "RE2-OB"].copy()
+
+print("Total RE2-OB cases:", len(re2ob_cases))
+
+print("\nRoot-cause services:")
+print(re2ob_cases["root_cause_service"].value_counts())
+
+print("\nFault types:")
+print(re2ob_cases["fault"].value_counts())
+
+print("\nService × Fault:")
+print(
+    pd.crosstab(
+        re2ob_cases["root_cause_service"],
+        re2ob_cases["fault"]
+    )
+)
+
+--- code ---
+re2ob_case_ids = re2ob_cases["case"].tolist()
+
+print("Cases to download:", len(re2ob_case_ids))
+
+print("\nFirst 10 cases:")
+print(re2ob_case_ids[:10])
+
+--- code ---
+import os
+
+for root, dirs, files in os.walk("/content/rcaeval_re2ob"):
+    for file in files:
+        if file == "metrics.parquet":
+            print(os.path.join(root, file))
+            break
+
+--- code ---
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id="phamquiluan/RCAEval",
+    repo_type="dataset",
+    local_dir="/content/rcaeval_re2ob",
+    allow_patterns=[
+        *[
+            f"**/{case_id}/metrics.parquet"
+            for case_id in re2ob_case_ids
+        ]
+    ]
+)
+
+print("RE2-OB metrics download complete.")
+
+--- code ---
+import os
+
+downloaded_cases = []
+
+for case_id in re2ob_case_ids:
+    case_path = f"/content/rcaeval_re2ob/{case_id}/metrics.parquet"
+
+    if os.path.exists(case_path):
+        downloaded_cases.append(case_id)
+
+print("Downloaded:", len(downloaded_cases))
+print("Missing:", len(re2ob_case_ids) - len(downloaded_cases))
+
+--- code ---
+import os
+
+print("Directory exists:", os.path.exists("/content/rcaeval_re2ob"))
+
+if os.path.exists("/content/rcaeval_re2ob"):
+    print("\nTop-level contents:")
+    print(os.listdir("/content/rcaeval_re2ob")[:20])
+
+    print("\nAll parquet files found:")
+    parquet_files = []
+
+    for root, dirs, files in os.walk("/content/rcaeval_re2ob"):
+        for file in files:
+            if file.endswith(".parquet"):
+                parquet_files.append(
+                    os.path.join(root, file)
+                )
+
+    print("Total parquet files:", len(parquet_files))
+
+    for path in parquet_files[:20]:
+        print(path)
+else:
+    print("Directory does not exist.")
+
+--- code ---
+from huggingface_hub import list_repo_files
+
+files = list_repo_files(
+    repo_id="phamquiluan/RCAEval",
+    repo_type="dataset"
+)
+
+re2ob_files = [
+    f for f in files
+    if "re2ob_" in f.lower()
+]
+
+print("Total RE2-OB files:", len(re2ob_files))
+
+print("\nFirst 30:")
+for f in re2ob_files[:30]:
+    print(f)
+
+--- code ---
+from huggingface_hub import snapshot_download
+
+allow_patterns = [
+    f"{case_id}/metrics.parquet"
+    for case_id in re2ob_case_ids
+]
+
+snapshot_download(
+    repo_id="phamquiluan/RCAEval",
+    repo_type="dataset",
+    local_dir="/content/rcaeval_re2ob",
+    allow_patterns=allow_patterns
+)
+
+print("RE2-OB metrics download complete.")
+
+--- code ---
+import os
+
+downloaded_cases = []
+
+for case_id in re2ob_case_ids:
+    path = f"/content/rcaeval_re2ob/{case_id}/metrics.parquet"
+
+    if os.path.exists(path):
+        downloaded_cases.append(case_id)
+
+print("Downloaded:", len(downloaded_cases))
+print("Missing:", len(re2ob_case_ids) - len(downloaded_cases))
+
+--- code ---
+def load_metrics_case(case_id, cases, base_dir="/content/rcaeval_re2ob"):
+    metadata = get_case_metadata(cases, case_id)
+
+    case_dir = os.path.join(base_dir, case_id)
+
+    metrics_path = os.path.join(
+        case_dir,
+        "metrics.parquet"
+    )
+
+    if not os.path.isfile(metrics_path):
+        raise FileNotFoundError(
+            f"Missing metrics.parquet for case '{case_id}' "
+            f"in directory '{case_dir}'."
+        )
+
+    metrics = pd.read_parquet(metrics_path)
+
+    return {
+        "metadata": metadata,
+        "metrics": metrics
+    }
+
+
+--- code ---
+test_case = load_metrics_case(
+    "re2ob_checkoutservice_cpu_1",
+    cases,
+    base_dir="/content/rcaeval_re2ob"
+)
+
+print("Metadata loaded:", test_case["metadata"]["case"])
+print("Metrics shape:", test_case["metrics"].shape)
+
+--- code ---
+def normalize_metrics_case(case_data):
+    metrics = case_data["metrics"].copy()
+
+    metrics["timestamp"] = metrics["time"]
+
+    return {
+        "metadata": case_data["metadata"],
+        "metrics": metrics
+    }
+
+--- code ---
+test_case = normalize_metrics_case(test_case)
+
+print("Metrics shape:", test_case["metrics"].shape)
+print("\nColumns:")
+print(test_case["metrics"].columns[-5:].tolist())
+
+--- code ---
+def add_metrics_relative_time(case_data):
+    inject_time = case_data["metadata"]["inject_time"]
+
+    metrics = case_data["metrics"].copy()
+
+    metrics["relative_time"] = (
+        metrics["timestamp"] - inject_time
+    )
+
+    return {
+        "metadata": case_data["metadata"],
+        "metrics": metrics
+    }
+
+--- code ---
+test_case = add_metrics_relative_time(test_case)
+
+print("Metrics shape:", test_case["metrics"].shape)
+
+print(
+    "\nRelative time:",
+    test_case["metrics"]["relative_time"].min(),
+    "to",
+    test_case["metrics"]["relative_time"].max()
+)
+
+--- code ---
+all_case_data_re2ob = {}
+
+for case_id in re2ob_case_ids:
+
+    case_data = load_metrics_case(
+        case_id,
+        cases,
+        base_dir="/content/rcaeval_re2ob"
+    )
+
+    case_data = normalize_metrics_case(case_data)
+    case_data = add_metrics_relative_time(case_data)
+
+    all_case_data_re2ob[case_id] = case_data
+
+print("Cases loaded:", len(all_case_data_re2ob))
+
+--- code ---
+print("Example cases:")
+
+for case_id in list(all_case_data_re2ob.keys())[:5]:
+    data = all_case_data_re2ob[case_id]
+
+    print(
+        case_id,
+        "→ metrics:",
+        data["metrics"].shape,
+        "| time:",
+        data["metrics"]["relative_time"].min(),
+        "to",
+        data["metrics"]["relative_time"].max()
+    )
+
+--- code ---
+all_windows = []
+
+for case_id, case_data in all_case_data_re2ob.items():
+
+    windows = generate_case_windows(
+        case_data,
+        window_size=30,
+        baseline_seconds=60
+    )
+
+    windows = add_window_labels(
+        windows,
+        case_data,
+        case_id
+    )
+
+    all_windows.append(windows)
+
+
+full_dataset_re2ob = pd.concat(
+    all_windows,
+    ignore_index=True,
+    sort=False
+)
+
+print("Full dataset shape:", full_dataset_re2ob.shape)
+print("Number of cases:", full_dataset_re2ob["case_id"].nunique())
+print("\nLabels:")
+print(full_dataset_re2ob["label"].value_counts())
+
+print("\nFaults:")
+print(full_dataset_re2ob["fault"].value_counts())
+
+--- code ---
+feature_columns_all = [
+    col for col in full_dataset_re2ob.columns
+    if col not in [
+        "window_start",
+        "window_end",
+        "case_id",
+        "fault",
+        "label"
+    ]
+]
+
+missing_percentage = (
+    full_dataset_re2ob[feature_columns_all]
+    .isna()
+    .mean()
+    * 100
+)
+
+print("Total features:", len(feature_columns_all))
+
+print("\nTop 20 features by missing percentage:")
+print(
+    missing_percentage
+    .sort_values(ascending=False)
+    .head(20)
+)
+
+--- code ---
+missing_threshold = 99.0
+
+features_to_remove = missing_percentage[
+    missing_percentage > missing_threshold
+].index.tolist()
+
+print("Features to remove:", len(features_to_remove))
+
+print("\nFeatures:")
+for feature in features_to_remove:
+    print(feature)
+
+full_dataset_clean = full_dataset_re2ob.drop(
+    columns=features_to_remove
+)
+
+print("\nOriginal shape:", full_dataset_re2ob.shape)
+print("Cleaned shape:", full_dataset_clean.shape)
+
+--- code ---
+feature_columns_clean = [
+    col for col in full_dataset_clean.columns
+    if col not in [
+        "window_start",
+        "window_end",
+        "case_id",
+        "fault",
+        "label"
+    ]
+]
+
+remaining_missing = (
+    full_dataset_clean[feature_columns_clean]
+    .isna()
+    .mean()
+    * 100
+)
+
+print("Remaining features:", len(feature_columns_clean))
+
+print("\nTop 20 remaining features by missing percentage:")
+print(
+    remaining_missing
+    .sort_values(ascending=False)
+    .head(20)
+)
+
+print(
+    "\nFeatures with any missing values:",
+    (remaining_missing > 0).sum()
+)
+
+--- code ---
+from sklearn.model_selection import GroupShuffleSplit
+
+groups = full_dataset_clean["case_id"]
+
+splitter = GroupShuffleSplit(
+    n_splits=1,
+    test_size=0.2,
+    random_state=42
+)
+
+train_idx, test_idx = next(
+    splitter.split(
+        full_dataset_clean,
+        groups=groups
+    )
+)
+
+train_data = full_dataset_clean.iloc[train_idx].copy()
+test_data = full_dataset_clean.iloc[test_idx].copy()
+
+print("Train shape:", train_data.shape)
+print("Test shape:", test_data.shape)
+
+print("\nTrain cases:", train_data["case_id"].nunique())
+print("Test cases:", test_data["case_id"].nunique())
+
+print("\nCases in both sets:")
+print(
+    set(train_data["case_id"]) &
+    set(test_data["case_id"])
+)
+
+--- code ---
+print("TRAIN — root-cause services:")
+print(train_data["label"].value_counts())
+
+print("\nTEST — root-cause services:")
+print(test_data["label"].value_counts())
+
+print("\nTRAIN — faults:")
+print(train_data["fault"].value_counts())
+
+print("\nTEST — faults:")
+print(test_data["fault"].value_counts())
+
+--- code ---
+metadata_columns = [
+    "window_start",
+    "window_end",
+    "case_id",
+    "fault",
+    "label"
+]
+
+feature_columns = [
+    col for col in train_data.columns
+    if col not in metadata_columns
+]
+
+X_train = train_data[feature_columns].copy()
+X_test = test_data[feature_columns].copy()
+
+y_train = train_data["label"].copy()
+y_test = test_data["label"].copy()
+
+print("X_train:", X_train.shape)
+print("X_test:", X_test.shape)
+
+print("\ny_train:")
+print(y_train.value_counts())
+
+print("\ny_test:")
+print(y_test.value_counts())
+
+print("\nNumber of features:", len(feature_columns))
+
+--- code ---
+from sklearn.impute import SimpleImputer
+
+imputer = SimpleImputer(strategy="median")
+
+X_train_imputed = imputer.fit_transform(X_train)
+X_test_imputed = imputer.transform(X_test)
+
+print("X_train after imputation:", X_train_imputed.shape)
+print("X_test after imputation:", X_test_imputed.shape)
+
+print(
+    "Missing values in X_train:",
+    np.isnan(X_train_imputed).sum()
+)
+
+print(
+    "Missing values in X_test:",
+    np.isnan(X_test_imputed).sum()
+)
+
+--- code ---
+from sklearn.preprocessing import StandardScaler
+
+scaler = StandardScaler()
+
+X_train_scaled = scaler.fit_transform(X_train_imputed)
+X_test_scaled = scaler.transform(X_test_imputed)
+
+print("X_train_scaled:", X_train_scaled.shape)
+print("X_test_scaled:", X_test_scaled.shape)
+
+print("\nTrain mean (first 5 features):")
+print(X_train_scaled.mean(axis=0)[:5])
+
+print("\nTrain std (first 5 features):")
+print(X_train_scaled.std(axis=0)[:5])
+
+--- code ---
+from sklearn.linear_model import LogisticRegression
+
+baseline_model = LogisticRegression(
+    max_iter=2000,
+    random_state=42
+)
+
+baseline_model.fit(
+    X_train_scaled,
+    y_train
+)
+
+train_accuracy = baseline_model.score(
+    X_train_scaled,
+    y_train
+)
+
+test_accuracy = baseline_model.score(
+    X_test_scaled,
+    y_test
+)
+
+print("Train accuracy:", train_accuracy)
+print("Test accuracy:", test_accuracy)
+
+--- code ---
+from sklearn.metrics import confusion_matrix, classification_report
+
+y_pred = baseline_model.predict(X_test_scaled)
+
+print("Confusion Matrix:")
+print(
+    confusion_matrix(
+        y_test,
+        y_pred,
+        labels=baseline_model.classes_
+    )
+)
+
+print("\nClassification Report:")
+print(
+    classification_report(
+        y_test,
+        y_pred
+    )
+)
+
+--- code ---
+from sklearn.ensemble import RandomForestClassifier
+
+rf_model = RandomForestClassifier(
+    n_estimators=300,
+    random_state=42,
+    n_jobs=-1
+)
+
+rf_model.fit(
+    X_train_imputed,
+    y_train
+)
+
+rf_train_accuracy = rf_model.score(
+    X_train_imputed,
+    y_train
+)
+
+rf_test_accuracy = rf_model.score(
+    X_test_imputed,
+    y_test
+)
+
+print("Random Forest train accuracy:", rf_train_accuracy)
+print("Random Forest test accuracy:", rf_test_accuracy)
+
+--- code ---
+X_train_imputed
+X_test_imputed
+
+--- code ---
+from sklearn.metrics import confusion_matrix, classification_report
+
+rf_pred = rf_model.predict(X_test_imputed)
+
+print("Confusion Matrix:")
+print(
+    confusion_matrix(
+        y_test,
+        rf_pred,
+        labels=rf_model.classes_
+    )
+)
+
+print("\nClassification Report:")
+print(
+    classification_report(
+        y_test,
+        rf_pred
+    )
+)
+
+--- code ---
+feature_importance = pd.Series(
+    rf_model.feature_importances_,
+    index=feature_columns
+)
+
+top_features = (
+    feature_importance
+    .sort_values(ascending=False)
+    .head(20)
+)
+
+print("Top 20 features:")
+print(top_features)
+
+--- code ---
+from sklearn.model_selection import GroupKFold
+from sklearn.metrics import accuracy_score, f1_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+
+groups = full_dataset_clean["case_id"]
+
+gkf = GroupKFold(n_splits=5)
+
+lr_scores = []
+rf_scores = []
+
+for fold, (train_idx, val_idx) in enumerate(
+    gkf.split(full_dataset_clean, groups=groups),
+    start=1
+):
+    X_train_fold = full_dataset_clean.iloc[train_idx][feature_columns]
+    X_val_fold = full_dataset_clean.iloc[val_idx][feature_columns]
+
+    y_train_fold = full_dataset_clean.iloc[train_idx]["label"]
+    y_val_fold = full_dataset_clean.iloc[val_idx]["label"]
+
+    # Imputation — fit ONLY on this fold's training data
+    fold_imputer = SimpleImputer(strategy="median")
+
+    X_train_fold = fold_imputer.fit_transform(X_train_fold)
+    X_val_fold = fold_imputer.transform(X_val_fold)
+
+    # Logistic Regression — scaling required
+    fold_scaler = StandardScaler()
+
+    X_train_lr = fold_scaler.fit_transform(X_train_fold)
+    X_val_lr = fold_scaler.transform(X_val_fold)
+
+    lr_model = LogisticRegression(
+        max_iter=2000,
+        random_state=42
+    )
+
+    lr_model.fit(X_train_lr, y_train_fold)
+
+    lr_pred = lr_model.predict(X_val_lr)
+
+    lr_acc = accuracy_score(y_val_fold, lr_pred)
+    lr_f1 = f1_score(
+        y_val_fold,
+        lr_pred,
+        average="macro"
+    )
+
+    lr_scores.append((lr_acc, lr_f1))
+
+    # Random Forest — scaling not required
+    fold_rf = RandomForestClassifier(
+        n_estimators=300,
+        random_state=42,
+        n_jobs=-1
+    )
+
+    fold_rf.fit(X_train_fold, y_train_fold)
+
+    rf_pred = fold_rf.predict(X_val_fold)
+
+    rf_acc = accuracy_score(y_val_fold, rf_pred)
+    rf_f1 = f1_score(
+        y_val_fold,
+        rf_pred,
+        average="macro"
+    )
+
+    rf_scores.append((rf_acc, rf_f1))
+
+    print(
+        f"Fold {fold}: "
+        f"LR accuracy={lr_acc:.4f}, LR F1={lr_f1:.4f} | "
+        f"RF accuracy={rf_acc:.4f}, RF F1={rf_f1:.4f}"
+    )
+
+print("\nAverage results:")
+
+print(
+    "Logistic Regression:",
+    "accuracy =", sum(x[0] for x in lr_scores) / len(lr_scores),
+    "| macro F1 =", sum(x[1] for x in lr_scores) / len(lr_scores)
+)
+
+print(
+    "Random Forest:",
+    "accuracy =", sum(x[0] for x in rf_scores) / len(rf_scores),
+    "| macro F1 =", sum(x[1] for x in rf_scores) / len(rf_scores)
+)
+
+--- code ---
+from sklearn.model_selection import GroupKFold
+from sklearn.metrics import accuracy_score, f1_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+
+groups = full_dataset_clean["case_id"]
+
+gkf = GroupKFold(n_splits=5)
+
+lr_scores = []
+rf_scores = []
+
+for fold, (train_idx, val_idx) in enumerate(
+    gkf.split(full_dataset_clean, groups=groups),
+    start=1
+):
+    train_fold = full_dataset_clean.iloc[train_idx]
+    val_fold = full_dataset_clean.iloc[val_idx]
+
+    X_train_fold = train_fold[feature_columns].copy()
+    X_val_fold = val_fold[feature_columns].copy()
+
+    y_train_fold = train_fold["label"]
+    y_val_fold = val_fold["label"]
+
+    # Remove features that have NO observed values
+    # in this fold's training data.
+    usable_features = [
+        col for col in feature_columns
+        if X_train_fold[col].notna().any()
+    ]
+
+    X_train_fold = X_train_fold[usable_features]
+    X_val_fold = X_val_fold[usable_features]
+
+    # Imputation — training fold only
+    fold_imputer = SimpleImputer(strategy="median")
+
+    X_train_fold = fold_imputer.fit_transform(X_train_fold)
+    X_val_fold = fold_imputer.transform(X_val_fold)
+
+    # Logistic Regression
+    fold_scaler = StandardScaler()
+
+    X_train_lr = fold_scaler.fit_transform(X_train_fold)
+    X_val_lr = fold_scaler.transform(X_val_fold)
+
+    lr_model = LogisticRegression(
+        max_iter=2000,
+        random_state=42
+    )
+
+    lr_model.fit(X_train_lr, y_train_fold)
+
+    lr_pred = lr_model.predict(X_val_lr)
+
+    lr_acc = accuracy_score(y_val_fold, lr_pred)
+    lr_f1 = f1_score(
+        y_val_fold,
+        lr_pred,
+        average="macro"
+    )
+
+    lr_scores.append((lr_acc, lr_f1))
+
+    # Random Forest
+    fold_rf = RandomForestClassifier(
+        n_estimators=300,
+        random_state=42,
+        n_jobs=-1
+    )
+
+    fold_rf.fit(X_train_fold, y_train_fold)
+
+    rf_pred = fold_rf.predict(X_val_fold)
+
+    rf_acc = accuracy_score(y_val_fold, rf_pred)
+    rf_f1 = f1_score(
+        y_val_fold,
+        rf_pred,
+        average="macro"
+    )
+
+    rf_scores.append((rf_acc, rf_f1))
+
+    print(
+        f"Fold {fold}: "
+        f"LR accuracy={lr_acc:.4f}, LR F1={lr_f1:.4f} | "
+        f"RF accuracy={rf_acc:.4f}, RF F1={rf_f1:.4f} | "
+        f"Features used={len(usable_features)}"
+    )
+
+
+print("\nAverage results:")
+
+print(
+    "Logistic Regression:",
+    "accuracy =",
+    sum(x[0] for x in lr_scores) / len(lr_scores),
+    "| macro F1 =",
+    sum(x[1] for x in lr_scores) / len(lr_scores)
+)
+
+print(
+    "Random Forest:",
+    "accuracy =",
+    sum(x[0] for x in rf_scores) / len(rf_scores),
+    "| macro F1 =",
+    sum(x[1] for x in rf_scores) / len(rf_scores)
+)
+
+--- code ---
+feature_importance = pd.Series(
+    rf_model.feature_importances_,
+    index=feature_columns
+)
+
+top_30_features = (
+    feature_importance
+    .sort_values(ascending=False)
+    .head(30)
+)
+
+print("Top 30 features:")
+print(top_30_features)
+
+--- code ---
+rca_dataset = full_dataset_clean[
+    full_dataset_clean["label"] != "normal"
+].copy()
+
+print("RCA-only dataset shape:", rca_dataset.shape)
+
+print("\nRoot-cause services:")
+print(
+    rca_dataset["label"].value_counts()
+)
+
+print("\nNumber of cases:")
+print(
+    rca_dataset["case_id"].nunique()
+)
+
+--- code ---
+from sklearn.model_selection import GroupShuffleSplit
+
+rca_groups = rca_dataset["case_id"]
+
+rca_splitter = GroupShuffleSplit(
+    n_splits=1,
+    test_size=0.2,
+    random_state=42
+)
+
+rca_train_idx, rca_test_idx = next(
+    rca_splitter.split(
+        rca_dataset,
+        groups=rca_groups
+    )
+)
+
+rca_train = rca_dataset.iloc[rca_train_idx].copy()
+rca_test = rca_dataset.iloc[rca_test_idx].copy()
+
+print("RCA train shape:", rca_train.shape)
+print("RCA test shape:", rca_test.shape)
+
+print("\nTrain cases:", rca_train["case_id"].nunique())
+print("Test cases:", rca_test["case_id"].nunique())
+
+print("\nRCA train labels:")
+print(rca_train["label"].value_counts())
+
+print("\nRCA test labels:")
+print(rca_test["label"].value_counts())
+
+print("\nCases in both:")
+print(
+    set(rca_train["case_id"]) &
+    set(rca_test["case_id"])
+)
+
+--- code ---
+metadata_columns = [
+    "window_start",
+    "window_end",
+    "case_id",
+    "fault",
+    "label"
+]
+
+rca_feature_columns = [
+    col for col in rca_train.columns
+    if col not in metadata_columns
+]
+
+X_rca_train = rca_train[rca_feature_columns].copy()
+X_rca_test = rca_test[rca_feature_columns].copy()
+
+y_rca_train = rca_train["label"].copy()
+y_rca_test = rca_test["label"].copy()
+
+print("X_rca_train:", X_rca_train.shape)
+print("X_rca_test:", X_rca_test.shape)
+print("Number of RCA features:", len(rca_feature_columns))
+
+--- code ---
+from sklearn.impute import SimpleImputer
+
+rca_imputer = SimpleImputer(strategy="median")
+
+X_rca_train_imputed = rca_imputer.fit_transform(
+    X_rca_train
+)
+
+X_rca_test_imputed = rca_imputer.transform(
+    X_rca_test
+)
+
+print("RCA train after imputation:", X_rca_train_imputed.shape)
+print("RCA test after imputation:", X_rca_test_imputed.shape)
+
+print(
+    "Missing values in RCA train:",
+    np.isnan(X_rca_train_imputed).sum()
+)
+
+print(
+    "Missing values in RCA test:",
+    np.isnan(X_rca_test_imputed).sum()
+)
+
+--- code ---
+from sklearn.ensemble import RandomForestClassifier
+
+rca_rf_model = RandomForestClassifier(
+    n_estimators=300,
+    random_state=42,
+    n_jobs=-1
+)
+
+rca_rf_model.fit(
+    X_rca_train_imputed,
+    y_rca_train
+)
+
+rca_train_accuracy = rca_rf_model.score(
+    X_rca_train_imputed,
+    y_rca_train
+)
+
+rca_test_accuracy = rca_rf_model.score(
+    X_rca_test_imputed,
+    y_rca_test
+)
+
+print("RCA Random Forest train accuracy:", rca_train_accuracy)
+print("RCA Random Forest test accuracy:", rca_test_accuracy)
+
+--- code ---
+from sklearn.metrics import confusion_matrix, classification_report
+
+rca_predictions = rca_rf_model.predict(
+    X_rca_test_imputed
+)
+
+print("RCA Confusion Matrix:")
+print(
+    confusion_matrix(
+        y_rca_test,
+        rca_predictions
+    )
+)
+
+print("\nRCA Classification Report:")
+print(
+    classification_report(
+        y_rca_test,
+        rca_predictions
+    )
+)
+
+--- code ---
+misclassified = rca_test[
+    y_rca_test != rca_predictions
+].copy()
+
+misclassified["predicted_label"] = rca_predictions[
+    y_rca_test != rca_predictions
+]
+
+print("Number of misclassified windows:", len(misclassified))
+
+print("\nMisclassification pairs:")
+print(
+    misclassified[
+        ["case_id", "fault", "label", "predicted_label",
+         "window_start", "window_end"]
+    ].to_string(index=False)
+)
+
+--- code ---
+target_cases = [
+    "re2ob_recommendationservice_loss_1",
+    "re2ob_recommendationservice_loss_2",
+    "re2ob_recommendationservice_loss_3"
+]
+
+for case_id in target_cases:
+    case_data = all_case_data_re2ob[case_id]
+
+    print("\n", case_id)
+
+    print(
+        "Shape:",
+        case_data["metrics"].shape
+    )
+
+    print(
+        "Time range:",
+        case_data["metrics"]["relative_time"].min(),
+        "to",
+        case_data["metrics"]["relative_time"].max()
+    )
+
+    print(
+        "Root cause:",
+        case_data["metadata"]["root_cause_service"]
+    )
+
+    print(
+        "Fault:",
+        case_data["metadata"]["fault"]
+    )
+
+--- code ---
+
+
+--- code ---
+for case_id in target_cases:
+    case_data = all_case_data_re2ob[case_id]
+
+    metrics = case_data["metrics"]
+
+    late_data = metrics[
+        (metrics["relative_time"] >= 450) &
+        (metrics["relative_time"] < 720)
+    ]
+
+    numeric_columns = late_data.select_dtypes(
+        include="number"
+    ).columns
+
+    excluded_columns = [
+        "time",
+        "timestamp",
+        "relative_time"
+    ]
+
+    numeric_columns = [
+        col for col in numeric_columns
+        if col not in excluded_columns
+    ]
+
+    print("\n", case_id)
+    print(
+        late_data[numeric_columns]
+        .mean()
+        .sort_values(ascending=False)
+        .head(15)
+    )
+
+--- code ---
+for case_id in target_cases:
+    case_data = all_case_data_re2ob[case_id]
+
+    metrics = case_data["metrics"]
+
+    baseline = get_baseline(
+        metrics,
+        baseline_seconds=60
+    )
+
+    late_data = metrics[
+        (metrics["relative_time"] >= 450) &
+        (metrics["relative_time"] < 720)
+    ]
+
+    numeric_columns = [
+        col for col in baseline.index
+        if col in late_data.columns
+    ]
+
+    deltas = (
+        late_data[numeric_columns].mean()
+        - baseline[numeric_columns]
+    )
+
+    print("\n" + "=" * 60)
+    print(case_id)
+
+    print(
+        deltas
+        .sort_values(
+            key=lambda x: x.abs(),
+            ascending=False
+        )
+        .head(15)
+    )
+
+--- code ---
+rca_results = rca_test[
+    ["case_id", "fault", "label"]
+].copy()
+
+rca_results["predicted_label"] = rca_predictions
+
+print(
+    rca_results.groupby("fault").apply(
+        lambda x: pd.Series({
+            "accuracy": (
+                x["label"] == x["predicted_label"]
+            ).mean(),
+            "windows": len(x),
+            "cases": x["case_id"].nunique()
+        })
+    )
+)
+
+--- code ---
+loss_results = rca_results[
+    rca_results["fault"] == "loss"
+].copy()
+
+print(
+    loss_results.groupby("label").apply(
+        lambda x: pd.Series({
+            "accuracy": (
+                x["label"] == x["predicted_label"]
+            ).mean(),
+            "windows": len(x),
+            "cases": x["case_id"].nunique()
+        })
+    )
+)
+
+--- code ---
+from sklearn.metrics import f1_score
+
+rca_macro_f1 = f1_score(
+    y_rca_test,
+    rca_predictions,
+    average="macro"
+)
+
+rca_weighted_f1 = f1_score(
+    y_rca_test,
+    rca_predictions,
+    average="weighted"
+)
+
+print("RCA Macro F1:", rca_macro_f1)
+print("RCA Weighted F1:", rca_weighted_f1)
+
+--- code ---
+rca_probabilities = rca_rf_model.predict_proba(
+    X_rca_test_imputed
+)
+
+class_names = rca_rf_model.classes_
+
+print("Classes:")
+print(class_names)
+
+print("\nProbability shape:")
+print(rca_probabilities.shape)
+
+--- code ---
+rca_test_results = rca_test[
+    ["case_id", "fault", "label"]
+].copy()
+
+rca_test_results["predicted_label"] = rca_predictions
+
+for i, class_name in enumerate(class_names):
+    rca_test_results[f"prob_{class_name}"] = rca_probabilities[:, i]
+
+case_level_scores = (
+    rca_test_results
+    .groupby("case_id")
+    .agg({
+        "fault": "first",
+        "label": "first",
+        **{
+            f"prob_{class_name}": "mean"
+            for class_name in class_names
+        }
+    })
+    .reset_index()
+)
+
+print("Case-level shape:", case_level_scores.shape)
+
+print("\nNumber of cases:")
+print(case_level_scores["case_id"].nunique())
+
+print("\nFirst 5 cases:")
+print(case_level_scores.head())
+
+--- code ---
+probability_columns = [
+    f"prob_{class_name}"
+    for class_name in class_names
+]
+
+top1_correct = 0
+top3_correct = 0
+
+for _, row in case_level_scores.iterrows():
+
+    ranked_services = (
+        row[probability_columns]
+        .sort_values(ascending=False)
+        .index
+    )
+
+    ranked_services = [
+        col.replace("prob_", "")
+        for col in ranked_services
+    ]
+
+    true_service = row["label"]
+
+    if ranked_services[0] == true_service:
+        top1_correct += 1
+
+    if true_service in ranked_services[:3]:
+        top3_correct += 1
+
+case_count = len(case_level_scores)
+
+print(
+    "Case-level Top-1 Accuracy:",
+    top1_correct / case_count
+)
+
+print(
+    "Case-level Top-3 Accuracy:",
+    top3_correct / case_count
+)
+
+print("Total test cases:", case_count)
+
+--- code ---
+print("===== RCA BASELINE =====")
+print("Model: Random Forest")
+print("Features:", len(rca_feature_columns))
+print("Training cases:", rca_train["case_id"].nunique())
+print("Test cases:", rca_test["case_id"].nunique())
+
+print("\nWindow-level:")
+print(f"Accuracy: {rca_test_accuracy:.4f}")
+print(f"Macro F1: {rca_macro_f1:.4f}")
+print(f"Weighted F1: {rca_weighted_f1:.4f}")
+
+print("\nCase-level:")
+print(f"Top-1 Accuracy: {top1_correct}/{case_count}")
+print(f"Top-3 Accuracy: {top3_correct}/{case_count}")
+
+--- code ---
+re2ob_case_info = re2ob_cases[
+    ["case", "system_name", "fault", "repetition"]
+].copy()
+
+print(
+    re2ob_case_info
+    .sort_values(["system_name", "fault", "repetition"])
+    .head(20)
+)
+
+print("\nRepetition distribution:")
+print(
+    re2ob_case_info["repetition"].value_counts().sort_index()
+)
+
+--- code ---
+rca_train_rep = rca_dataset[
+    rca_dataset["case_id"].str.endswith("_1") |
+    rca_dataset["case_id"].str.endswith("_2")
+].copy()
+
+rca_test_rep = rca_dataset[
+    rca_dataset["case_id"].str.endswith("_3")
+].copy()
+
+print("Training shape:", rca_train_rep.shape)
+print("Test shape:", rca_test_rep.shape)
+
+print("\nTraining cases:", rca_train_rep["case_id"].nunique())
+print("Test cases:", rca_test_rep["case_id"].nunique())
+
+print("\nTraining repetitions:")
+print(
+    rca_train_rep["case_id"]
+    .str.extract(r"_(\d+)$")[0]
+    .value_counts()
+)
+
+print("\nTest repetitions:")
+print(
+    rca_test_rep["case_id"]
+    .str.extract(r"_(\d+)$")[0]
+    .value_counts()
+)
+
+print("\nCases in both:")
+print(
+    set(rca_train_rep["case_id"]) &
+    set(rca_test_rep["case_id"])
+)
+
+--- code ---
+X_train_rep = rca_train_rep[rca_feature_columns].copy()
+X_test_rep = rca_test_rep[rca_feature_columns].copy()
+
+y_train_rep = rca_train_rep["label"].copy()
+y_test_rep = rca_test_rep["label"].copy()
+
+print("X_train_rep:", X_train_rep.shape)
+print("X_test_rep:", X_test_rep.shape)
+print("Features:", len(rca_feature_columns))
+
+--- code ---
+from sklearn.impute import SimpleImputer
+
+rep_imputer = SimpleImputer(strategy="median")
+
+X_train_rep_imputed = rep_imputer.fit_transform(
+    X_train_rep
+)
+
+X_test_rep_imputed = rep_imputer.transform(
+    X_test_rep
+)
+
+print(
+    "Train after imputation:",
+    X_train_rep_imputed.shape
+)
+
+print(
+    "Test after imputation:",
+    X_test_rep_imputed.shape
+)
+
+print(
+    "Missing values in train:",
+    np.isnan(X_train_rep_imputed).sum()
+)
+
+print(
+    "Missing values in test:",
+    np.isnan(X_test_rep_imputed).sum()
+)
+
+--- code ---
+rep_usable_features = [
+    col
+    for col in rca_feature_columns
+    if X_train_rep[col].notna().any()
+]
+
+X_train_rep = X_train_rep[rep_usable_features].copy()
+X_test_rep = X_test_rep[rep_usable_features].copy()
+
+print("Original features:", len(rca_feature_columns))
+print("Usable features:", len(rep_usable_features))
+print("Removed features:",
+      len(rca_feature_columns) - len(rep_usable_features))
+
+print("\nRemoved:")
+print(
+    sorted(
+        set(rca_feature_columns) -
+        set(rep_usable_features)
+    )
+)
+
+
+--- code ---
+rep_imputer = SimpleImputer(strategy="median")
+
+X_train_rep_imputed = rep_imputer.fit_transform(
+    X_train_rep
+)
+
+X_test_rep_imputed = rep_imputer.transform(
+    X_test_rep
+)
+
+print("Train after imputation:", X_train_rep_imputed.shape)
+print("Test after imputation:", X_test_rep_imputed.shape)
+
+print(
+    "Missing values in train:",
+    np.isnan(X_train_rep_imputed).sum()
+)
+
+print(
+    "Missing values in test:",
+    np.isnan(X_test_rep_imputed).sum()
+)
+
+--- code ---
+rep_rf_model = RandomForestClassifier(
+    n_estimators=300,
+    random_state=42,
+    n_jobs=-1
+)
+
+rep_rf_model.fit(
+    X_train_rep_imputed,
+    y_train_rep
+)
+
+rep_train_accuracy = rep_rf_model.score(
+    X_train_rep_imputed,
+    y_train_rep
+)
+
+rep_test_accuracy = rep_rf_model.score(
+    X_test_rep_imputed,
+    y_test_rep
+)
+
+print(
+    "Repetition-aware RF train accuracy:",
+    rep_train_accuracy
+)
+
+print(
+    "Repetition-aware RF test accuracy:",
+    rep_test_accuracy
+)
+
+--- code ---
+from sklearn.metrics import confusion_matrix, classification_report
+
+rep_predictions = rep_rf_model.predict(
+    X_test_rep_imputed
+)
+
+rep_macro_f1 = f1_score(
+    y_test_rep,
+    rep_predictions,
+    average="macro"
+)
+
+print("Repetition-aware Confusion Matrix:")
+print(
+    confusion_matrix(
+        y_test_rep,
+        rep_predictions
+    )
+)
+
+print("\nClassification Report:")
+print(
+    classification_report(
+        y_test_rep,
+        rep_predictions
+    )
+)
+
+print("\nMacro F1:", rep_macro_f1)
+
+--- code ---
+rep_misclassified = rca_test_rep[
+    y_test_rep != rep_predictions
+].copy()
+
+rep_misclassified["predicted_label"] = rep_predictions[
+    y_test_rep != rep_predictions
+]
+
+print(
+    rep_misclassified[
+        [
+            "case_id",
+            "fault",
+            "label",
+            "predicted_label",
+            "window_start",
+            "window_end"
+        ]
+    ].to_string(index=False)
+)
+
+--- code ---
+rep_probabilities = rep_rf_model.predict_proba(
+    X_test_rep_imputed
+)
+
+rep_class_names = rep_rf_model.classes_
+
+print("Classes:")
+print(rep_class_names)
+
+print("\nProbability shape:")
+print(rep_probabilities.shape)
+
+--- code ---
+rep_test_results = rca_test_rep[
+    ["case_id", "fault", "label"]
+].copy()
+
+rep_test_results["predicted_label"] = rep_predictions
+
+for i, class_name in enumerate(rep_class_names):
+    rep_test_results[f"prob_{class_name}"] = rep_probabilities[:, i]
+
+rep_case_scores = (
+    rep_test_results
+    .groupby("case_id")
+    .agg({
+        "fault": "first",
+        "label": "first",
+        **{
+            f"prob_{class_name}": "mean"
+            for class_name in rep_class_names
+        }
+    })
+    .reset_index()
+)
+
+print("Case-level shape:", rep_case_scores.shape)
+print("Number of test cases:", rep_case_scores["case_id"].nunique())
+
+print("\nFirst 5 cases:")
+print(rep_case_scores.head())
+
+--- code ---
+rep_probability_columns = [
+    f"prob_{class_name}"
+    for class_name in rep_class_names
+]
+
+rep_top1_correct = 0
+rep_top3_correct = 0
+
+for _, row in rep_case_scores.iterrows():
+
+    ranked_services = (
+        row[rep_probability_columns]
+        .sort_values(ascending=False)
+        .index
+    )
+
+    ranked_services = [
+        col.replace("prob_", "")
+        for col in ranked_services
+    ]
+
+    true_service = row["label"]
+
+    if ranked_services[0] == true_service:
+        rep_top1_correct += 1
+
+    if true_service in ranked_services[:3]:
+        rep_top3_correct += 1
+
+rep_case_count = len(rep_case_scores)
+
+print(
+    "Repetition-aware Case-level Top-1:",
+    f"{rep_top1_correct}/{rep_case_count}",
+    f"({rep_top1_correct / rep_case_count:.4f})"
+)
+
+print(
+    "Repetition-aware Case-level Top-3:",
+    f"{rep_top3_correct}/{rep_case_count}",
+    f"({rep_top3_correct / rep_case_count:.4f})"
+)
+
+--- code ---
+for test_rep in [1, 2, 3]:
+
+    train_reps = [rep for rep in [1, 2, 3] if rep != test_rep]
+
+    print(f"Fold {test_rep}")
+    print("Train repetitions:", train_reps)
+    print("Test repetition:", test_rep)
+    print()
+
+--- code ---
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import accuracy_score, f1_score
+
+rep_fold_results = []
+
+for test_rep in [1, 2, 3]:
+
+    train_reps = [rep for rep in [1, 2, 3] if rep != test_rep]
+
+    train_fold = rca_dataset[
+        rca_dataset["case_id"].str.endswith(
+            tuple(f"_{rep}" for rep in train_reps)
+        )
+    ].copy()
+
+    test_fold = rca_dataset[
+        rca_dataset["case_id"].str.endswith(f"_{test_rep}")
+    ].copy()
+
+    X_train = train_fold[rca_feature_columns].copy()
+    X_test = test_fold[rca_feature_columns].copy()
+
+    y_train = train_fold["label"].copy()
+    y_test = test_fold["label"].copy()
+
+    # Remove features with no observed values in training fold
+    usable_features = [
+        col
+        for col in rca_feature_columns
+        if X_train[col].notna().any()
+    ]
+
+    X_train = X_train[usable_features]
+    X_test = X_test[usable_features]
+
+    # Train-only imputation
+    imputer = SimpleImputer(strategy="median")
+
+    X_train_imputed = imputer.fit_transform(X_train)
+    X_test_imputed = imputer.transform(X_test)
+
+    # Train model
+    model = RandomForestClassifier(
+        n_estimators=300,
+        random_state=42,
+        n_jobs=-1
+    )
+
+    model.fit(X_train_imputed, y_train)
+
+    # Window-level predictions
+    predictions = model.predict(X_test_imputed)
+
+    window_accuracy = accuracy_score(
+        y_test,
+        predictions
+    )
+
+    window_f1 = f1_score(
+        y_test,
+        predictions,
+        average="macro"
+    )
+
+    # Case-level probabilities
+    probabilities = model.predict_proba(X_test_imputed)
+    classes = model.classes_
+
+    case_results = test_fold[
+        ["case_id", "fault", "label"]
+    ].copy()
+
+    for i, class_name in enumerate(classes):
+        case_results[f"prob_{class_name}"] = probabilities[:, i]
+
+    case_scores = (
+        case_results
+        .groupby("case_id")
+        .agg({
+            "fault": "first",
+            "label": "first",
+            **{
+                f"prob_{class_name}": "mean"
+                for class_name in classes
+            }
+        })
+        .reset_index()
+    )
+
+    top1_correct = 0
+    top3_correct = 0
+
+    probability_columns = [
+        f"prob_{class_name}"
+        for class_name in classes
+    ]
+
+    for _, row in case_scores.iterrows():
+
+        ranked_services = (
+            row[probability_columns]
+            .sort_values(ascending=False)
+            .index
+        )
+
+        ranked_services = [
+            col.replace("prob_", "")
+            for col in ranked_services
+        ]
+
+        true_service = row["label"]
+
+        if ranked_services[0] == true_service:
+            top1_correct += 1
+
+        if true_service in ranked_services[:3]:
+            top3_correct += 1
+
+    case_count = len(case_scores)
+
+    rep_fold_results.append({
+        "test_repetition": test_rep,
+        "train_repetitions": train_reps,
+        "window_accuracy": window_accuracy,
+        "window_macro_f1": window_f1,
+        "case_top1": top1_correct / case_count,
+        "case_top3": top3_correct / case_count,
+        "test_cases": case_count,
+        "features_used": len(usable_features)
+    })
+
+    print(
+        f"Test repetition {test_rep}: "
+        f"Window Acc={window_accuracy:.4f}, "
+        f"Window Macro F1={window_f1:.4f}, "
+        f"Case Top-1={top1_correct}/{case_count}, "
+        f"Case Top-3={top3_correct}/{case_count}, "
+        f"Features={len(usable_features)}"
+    )
+
+--- code ---
+# Re-run the Rep 1 fold so we can inspect its case-level predictions
+
+test_rep = 1
+train_reps = [2, 3]
+
+train_fold = rca_dataset[
+    rca_dataset["case_id"].str.endswith(
+        tuple(f"_{rep}" for rep in train_reps)
+    )
+].copy()
+
+test_fold = rca_dataset[
+    rca_dataset["case_id"].str.endswith("_1")
+].copy()
+
+X_train = train_fold[rca_feature_columns].copy()
+X_test = test_fold[rca_feature_columns].copy()
+
+y_train = train_fold["label"].copy()
+y_test = test_fold["label"].copy()
+
+usable_features = [
+    col
+    for col in rca_feature_columns
+    if X_train[col].notna().any()
+]
+
+X_train = X_train[usable_features]
+X_test = X_test[usable_features]
+
+imputer = SimpleImputer(strategy="median")
+
+X_train_imputed = imputer.fit_transform(X_train)
+X_test_imputed = imputer.transform(X_test)
+
+model = RandomForestClassifier(
+    n_estimators=300,
+    random_state=42,
+    n_jobs=-1
+)
+
+model.fit(X_train_imputed, y_train)
+
+probabilities = model.predict_proba(X_test_imputed)
+classes = model.classes_
+
+case_results = test_fold[
+    ["case_id", "fault", "label"]
+].copy()
+
+for i, class_name in enumerate(classes):
+    case_results[f"prob_{class_name}"] = probabilities[:, i]
+
+case_scores = (
+    case_results
+    .groupby("case_id")
+    .agg({
+        "fault": "first",
+        "label": "first",
+        **{
+            f"prob_{class_name}": "mean"
+            for class_name in classes
+        }
+    })
+    .reset_index()
+)
+
+probability_columns = [
+    f"prob_{class_name}"
+    for class_name in classes
+]
+
+case_scores["predicted_label"] = (
+    case_scores[probability_columns]
+    .idxmax(axis=1)
+    .str.replace("prob_", "", regex=False)
+)
+
+mistakes = case_scores[
+    case_scores["predicted_label"] != case_scores["label"]
+].copy()
+
+print("Number of incorrect cases:", len(mistakes))
+
+print("\nIncorrect cases:")
+print(
+    mistakes[
+        [
+            "case_id",
+            "fault",
+            "label",
+            "predicted_label"
+        ] + probability_columns
+    ].to_string(index=False)
+)
+
+--- code ---
+# Compare baseline telemetry distributions across repetitions
+
+baseline_rows = []
+
+for case_id, case_data in all_case_data_re2ob.items():
+
+    metadata = case_data["metadata"]
+
+    # Only RE2-OB cases
+    if metadata["dataset"] != "RE2-OB":
+        continue
+
+    metrics = case_data["metrics"]
+
+    baseline = get_baseline(
+        metrics,
+        baseline_seconds=60
+    )
+
+    row = {
+        "case_id": case_id,
+        "repetition": metadata["repetition"],
+        "root_cause": metadata["root_cause_service"],
+        "fault": metadata["fault"]
+    }
+
+    # Store baseline metrics
+    for feature, value in baseline.items():
+        row[feature] = value
+
+    baseline_rows.append(row)
+
+baseline_df = pd.DataFrame(baseline_rows)
+
+print("Baseline dataframe shape:", baseline_df.shape)
+
+print("\nRepetition counts:")
+print(baseline_df["repetition"].value_counts().sort_index())
+
+print("\nExample:")
+print(
+    baseline_df[
+        ["case_id", "repetition", "root_cause", "fault"]
+    ].head()
+)
+
+--- code ---
+# Calculate how much baseline telemetry changes across repetitions
+
+metadata_cols = [
+    "case_id",
+    "repetition",
+    "root_cause",
+    "fault"
+]
+
+metric_cols = [
+    col for col in baseline_df.columns
+    if col not in metadata_cols
+]
+
+shift_rows = []
+
+for _, group in baseline_df.groupby(
+    ["root_cause", "fault"]
+):
+
+    if set(group["repetition"]) != {1, 2, 3}:
+        continue
+
+    rep1 = group[group["repetition"] == 1][metric_cols].iloc[0]
+    rep2 = group[group["repetition"] == 2][metric_cols].iloc[0]
+    rep3 = group[group["repetition"] == 3][metric_cols].iloc[0]
+
+    for feature in metric_cols:
+
+        values = [
+            rep1[feature],
+            rep2[feature],
+            rep3[feature]
+        ]
+
+        if all(pd.notna(values)):
+
+            mean_value = np.mean(values)
+
+            if mean_value != 0:
+
+                relative_range = (
+                    max(values) - min(values)
+                ) / abs(mean_value)
+
+                shift_rows.append({
+                    "root_cause": group["root_cause"].iloc[0],
+                    "fault": group["fault"].iloc[0],
+                    "feature": feature,
+                    "relative_range": relative_range
+                })
+
+shift_df = pd.DataFrame(shift_rows)
+
+print("Number of comparisons:", len(shift_df))
+
+print("\nLargest baseline shifts:")
+print(
+    shift_df
+    .sort_values("relative_range", ascending=False)
+    .head(20)
+    .to_string(index=False)
+)
+
+--- code ---
+failed_case_ids = mistakes["case_id"].tolist()
+
+failed_baselines = baseline_df[
+    baseline_df["case_id"].isin(failed_case_ids)
+].copy()
+
+print(
+    failed_baselines[
+        ["case_id", "repetition", "root_cause", "fault"]
+    ].to_string(index=False)
+)
+
+print("\nBaseline telemetry for failed cases:")
+
+failed_metric_cols = [
+    col for col in metric_cols
+    if failed_baselines[col].notna().any()
+]
+
+print(
+    failed_baselines[
+        ["case_id"] + failed_metric_cols
+    ].T.to_string()
+)
+
+--- code ---
+rep1_importance = pd.DataFrame({
+    "feature": usable_features,
+    "importance": model.feature_importances_
+})
+
+rep1_importance = (
+    rep1_importance
+    .sort_values("importance", ascending=False)
+    .reset_index(drop=True)
+)
+
+print("Top 30 features used by Rep-1 model:\n")
+
+print(
+    rep1_importance.head(30).to_string(index=False)
+)
+
+--- code ---
+# Remove all currencyservice telemetry features
+non_currency_features = [
+    col
+    for col in rca_feature_columns
+    if not col.startswith("currencyservice_")
+]
+
+X_train_no_currency = train_fold[non_currency_features].copy()
+X_test_no_currency = test_fold[non_currency_features].copy()
+
+# Remove features completely missing in training
+usable_no_currency = [
+    col
+    for col in non_currency_features
+    if X_train_no_currency[col].notna().any()
+]
+
+X_train_no_currency = X_train_no_currency[usable_no_currency]
+X_test_no_currency = X_test_no_currency[usable_no_currency]
+
+# Train-only imputation
+no_currency_imputer = SimpleImputer(strategy="median")
+
+X_train_no_currency_imp = (
+    no_currency_imputer.fit_transform(X_train_no_currency)
+)
+
+X_test_no_currency_imp = (
+    no_currency_imputer.transform(X_test_no_currency)
+)
+
+# Train model
+no_currency_model = RandomForestClassifier(
+    n_estimators=300,
+    random_state=42,
+    n_jobs=-1
+)
+
+no_currency_model.fit(
+    X_train_no_currency_imp,
+    y_train
+)
+
+# Window predictions
+no_currency_predictions = no_currency_model.predict(
+    X_test_no_currency_imp
+)
+
+no_currency_accuracy = accuracy_score(
+    y_test,
+    no_currency_predictions
+)
+
+no_currency_f1 = f1_score(
+    y_test,
+    no_currency_predictions,
+    average="macro"
+)
+
+print("Features before:", len(rca_feature_columns))
+print("Features after removing currencyservice:", len(usable_no_currency))
+
+print(
+    "\nWindow Accuracy:",
+    f"{no_currency_accuracy:.4f}"
+)
+
+print(
+    "Window Macro F1:",
+    f"{no_currency_f1:.4f}"
+)
+
+--- code ---
+no_currency_probabilities = no_currency_model.predict_proba(
+    X_test_no_currency_imp
+)
+
+no_currency_classes = no_currency_model.classes_
+
+no_currency_case_results = test_fold[
+    ["case_id", "fault", "label"]
+].copy()
+
+for i, class_name in enumerate(no_currency_classes):
+    no_currency_case_results[
+        f"prob_{class_name}"
+    ] = no_currency_probabilities[:, i]
+
+no_currency_case_scores = (
+    no_currency_case_results
+    .groupby("case_id")
+    .agg({
+        "fault": "first",
+        "label": "first",
+        **{
+            f"prob_{class_name}": "mean"
+            for class_name in no_currency_classes
+        }
+    })
+    .reset_index()
+)
+
+probability_columns = [
+    f"prob_{class_name}"
+    for class_name in no_currency_classes
+]
+
+no_currency_case_scores["predicted_label"] = (
+    no_currency_case_scores[probability_columns]
+    .idxmax(axis=1)
+    .str.replace("prob_", "", regex=False)
+)
+
+case_top1 = (
+    no_currency_case_scores["predicted_label"]
+    == no_currency_case_scores["label"]
+).sum()
+
+case_top3 = 0
+
+for _, row in no_currency_case_scores.iterrows():
+
+    ranked_services = (
+        row[probability_columns]
+        .sort_values(ascending=False)
+        .index
+        .str.replace("prob_", "", regex=False)
+        .tolist()
+    )
+
+    if row["label"] in ranked_services[:3]:
+        case_top3 += 1
+
+print(
+    "Case Top-1:",
+    f"{case_top1}/30 ({case_top1/30:.4f})"
+)
+
+print(
+    "Case Top-3:",
+    f"{case_top3}/30 ({case_top3/30:.4f})"
+)
+
+print("\nCase predictions:")
+print(
+    no_currency_case_scores[
+        ["case_id", "fault", "label", "predicted_label"]
+    ].to_string(index=False)
+)
+
+--- code ---
+no_currency_fold_results = []
+
+for test_rep in [1, 2, 3]:
+
+    train_reps = [rep for rep in [1, 2, 3] if rep != test_rep]
+
+    train_fold = rca_dataset[
+        rca_dataset["case_id"].str.endswith(
+            tuple(f"_{rep}" for rep in train_reps)
+        )
+    ].copy()
+
+    test_fold = rca_dataset[
+        rca_dataset["case_id"].str.endswith(f"_{test_rep}")
+    ].copy()
+
+    # Remove currencyservice telemetry
+    non_currency_features = [
+        col
+        for col in rca_feature_columns
+        if not col.startswith("currencyservice_")
+    ]
+
+    X_train = train_fold[non_currency_features].copy()
+    X_test = test_fold[non_currency_features].copy()
+
+    y_train = train_fold["label"].copy()
+    y_test = test_fold["label"].copy()
+
+    # Remove features with no observed values in training
+    usable_features = [
+        col
+        for col in non_currency_features
+        if X_train[col].notna().any()
+    ]
+
+    X_train = X_train[usable_features]
+    X_test = X_test[usable_features]
+
+    # Train-only imputation
+    imputer = SimpleImputer(strategy="median")
+
+    X_train_imp = imputer.fit_transform(X_train)
+    X_test_imp = imputer.transform(X_test)
+
+    # Model
+    model = RandomForestClassifier(
+        n_estimators=300,
+        random_state=42,
+        n_jobs=-1
+    )
+
+    model.fit(X_train_imp, y_train)
+
+    predictions = model.predict(X_test_imp)
+
+    window_accuracy = accuracy_score(
+        y_test,
+        predictions
+    )
+
+    window_f1 = f1_score(
+        y_test,
+        predictions,
+        average="macro"
+    )
+
+    # Case-level probabilities
+    probabilities = model.predict_proba(X_test_imp)
+    classes = model.classes_
+
+    case_results = test_fold[
+        ["case_id", "fault", "label"]
+    ].copy()
+
+    for i, class_name in enumerate(classes):
+        case_results[f"prob_{class_name}"] = probabilities[:, i]
+
+    case_scores = (
+        case_results
+        .groupby("case_id")
+        .agg({
+            "fault": "first",
+            "label": "first",
+            **{
+                f"prob_{class_name}": "mean"
+                for class_name in classes
+            }
+        })
+        .reset_index()
+    )
+
+    probability_columns = [
+        f"prob_{class_name}"
+        for class_name in classes
+    ]
+
+    top1 = 0
+    top3 = 0
+
+    for _, row in case_scores.iterrows():
+
+        ranked = (
+            row[probability_columns]
+            .sort_values(ascending=False)
+            .index
+            .str.replace("prob_", "", regex=False)
+            .tolist()
+        )
+
+        if ranked[0] == row["label"]:
+            top1 += 1
+
+        if row["label"] in ranked[:3]:
+            top3 += 1
+
+    case_count = len(case_scores)
+
+    no_currency_fold_results.append({
+        "test_repetition": test_rep,
+        "window_accuracy": window_accuracy,
+        "window_macro_f1": window_f1,
+        "case_top1": top1 / case_count,
+        "case_top3": top3 / case_count,
+        "features_used": len(usable_features)
+    })
+
+    print(
+        f"Test repetition {test_rep}: "
+        f"Window Acc={window_accuracy:.4f}, "
+        f"Macro F1={window_f1:.4f}, "
+        f"Case Top-1={top1}/{case_count}, "
+        f"Case Top-3={top3}/{case_count}, "
+        f"Features={len(usable_features)}"
+    )
+
+--- code ---
+def get_timeline_phase(window_start):
+    if window_start < 120:
+        return "early"
+    elif window_start < 360:
+        return "middle"
+    else:
+        return "late"
+
+
+timeline_check = rca_dataset.copy()
+
+timeline_check["phase"] = (
+    timeline_check["window_start"]
+    .apply(get_timeline_phase)
+)
+
+print(
+    timeline_check[
+        ["window_start", "window_end", "phase"]
+    ].head(10)
+)
+
+print("\nPhase distribution:")
+print(
+    timeline_check["phase"]
+    .value_counts()
+    .sort_index()
+)
+
+--- code ---
+temporal_results = []
+
+for test_rep in [1, 2, 3]:
+
+    train_reps = [rep for rep in [1, 2, 3] if rep != test_rep]
+
+    train_fold = rca_dataset[
+        rca_dataset["case_id"].str.endswith(
+            tuple(f"_{rep}" for rep in train_reps)
+        )
+    ].copy()
+
+    test_fold = rca_dataset[
+        rca_dataset["case_id"].str.endswith(f"_{test_rep}")
+    ].copy()
+
+    # Add timeline phase
+    train_fold["phase"] = train_fold["window_start"].apply(
+        get_timeline_phase
+    )
+
+    test_fold["phase"] = test_fold["window_start"].apply(
+        get_timeline_phase
+    )
+
+    # Use the ablated feature set
+    non_currency_features = [
+        col
+        for col in rca_feature_columns
+        if not col.startswith("currencyservice_")
+    ]
+
+    X_train = train_fold[non_currency_features].copy()
+    X_test = test_fold[non_currency_features].copy()
+
+    y_train = train_fold["label"].copy()
+    y_test = test_fold["label"].copy()
+
+    usable_features = [
+        col
+        for col in non_currency_features
+        if X_train[col].notna().any()
+    ]
+
+    X_train = X_train[usable_features]
+    X_test = X_test[usable_features]
+
+    # Train-only imputation
+    imputer = SimpleImputer(strategy="median")
+
+    X_train_imp = imputer.fit_transform(X_train)
+    X_test_imp = imputer.transform(X_test)
+
+    # Train model
+    model = RandomForestClassifier(
+        n_estimators=300,
+        random_state=42,
+        n_jobs=-1
+    )
+
+    model.fit(X_train_imp, y_train)
+
+    predictions = model.predict(X_test_imp)
+
+    # Evaluate each timeline phase
+    for phase in ["early", "middle", "late"]:
+
+        mask = test_fold["phase"] == phase
+
+        if mask.sum() == 0:
+            continue
+
+        phase_accuracy = accuracy_score(
+            y_test[mask],
+            predictions[mask]
+        )
+
+        phase_f1 = f1_score(
+            y_test[mask],
+            predictions[mask],
+            average="macro"
+        )
+
+        temporal_results.append({
+            "test_repetition": test_rep,
+            "phase": phase,
+            "windows": int(mask.sum()),
+            "accuracy": phase_accuracy,
+            "macro_f1": phase_f1
+        })
+
+        print(
+            f"Rep {test_rep} | {phase}: "
+            f"Accuracy={phase_accuracy:.4f}, "
+            f"Macro F1={phase_f1:.4f}, "
+            f"Windows={mask.sum()}"
+        )
+
+--- markdown ---
+### Subtask Data Acquisition and Management Strategy: Outline methods for acquiring and managing new or larger datasets for training, considering the structure and volume of telemetry data (metrics, logs, and traces).
+
+1.  **Identify Current and Potential Data Sources:**
+    *   **Metrics:** The primary data source, as demonstrated, is the `phamquiluan/RCAEval` dataset's `metrics.parquet` files, which contain time-series data for various service-level metrics (CPU, memory, disk I/O, network sockets, workload, errors, and latency percentiles). This structure aligns well with standard metric collection systems like Prometheus, which gather numerical data points at regular intervals. Potential real-world sources would be Prometheus, Grafana Mimir, or similar monitoring systems.
+    *   **Logs:** The `phamquiluan/RCAEval` dataset's `logs.parquet` provides structured logs with timestamps, container names, and messages. This mirrors data collected by logging agents like Fluentd, Logstash, or Vector, which forward logs from various services to a centralized system. In a real-world setting, additional context (e.g., Kubernetes pod information, request IDs) from logs could be crucial.
+    *   **Traces:** The `phamquiluan/RCAEval` dataset's `traces.parquet` contains distributed tracing information (traceID, spanID, serviceName, operationName, duration, statusCode). This aligns with distributed tracing systems like Jaeger, Zipkin, or OpenTelemetry, which capture the flow of requests across multiple services. The hierarchical structure (parentSpanID) is essential for understanding service dependencies and critical paths.
+
+2.  **Strategy for Continuously Acquiring New Data:**
+    In a real-world scenario, continuous data acquisition would involve:
+    *   **Metrics:** Using agents (e.g., Prometheus Node Exporter, JMX Exporter) to scrape metrics from services and infrastructure. Prometheus could store short-term data, while long-term storage might involve a time-series database like Mimir or Cortex.
+    *   **Logs:** Deploying logging agents (e.g., Fluentd, Filebeat, Logstash) on each host/pod to collect logs, parse them, and forward them to a centralized logging platform (e.g., Elasticsearch, Loki, Splunk).
+    *   **Traces:** Instrumenting services with OpenTelemetry SDKs (or similar) to generate trace data, which is then sent to a collector (e.g., OpenTelemetry Collector) and stored in a distributed tracing backend (e.g., Jaeger, Tempo).
+    *   **Event Streaming:** Utilizing Kafka or similar message brokers to stream raw telemetry data, allowing for real-time processing and ingestion into various storage systems.
+
+3.  **Propose Appropriate Storage Solutions:**
+    *   **Raw Telemetry (Metrics/Logs/Traces):** Object storage (e.g., Amazon S3, Google Cloud Storage, Azure Blob Storage) is ideal for cost-effectively storing vast volumes of raw, immutable telemetry data. This forms a
+
+--- markdown ---
+### Subtask Data Acquisition and Management Strategy: Outline methods for acquiring and managing new or larger datasets for training, considering the structure and volume of telemetry data (metrics, logs, and traces).
+
+1.  **Identify Current and Potential Data Sources:**
+    *   **Metrics:** The primary data source, as demonstrated, is the `phamquiluan/RCAEval` dataset's `metrics.parquet` files, which contain time-series data for various service-level metrics (CPU, memory, disk I/O, network sockets, workload, errors, and latency percentiles). This structure aligns well with standard metric collection systems like Prometheus, which gather numerical data points at regular intervals. Potential real-world sources would be Prometheus, Grafana Mimir, or similar monitoring systems.
+    *   **Logs:** The `phamquiluan/RCAEval` dataset's `logs.parquet` provides structured logs with timestamps, container names, and messages. This mirrors data collected by logging agents like Fluentd, Logstash, or Vector, which forward logs from various services to a centralized system. In a real-world setting, additional context (e.g., Kubernetes pod information, request IDs) from logs could be crucial.
+    *   **Traces:** The `phamquiluan/RCAEval` dataset's `traces.parquet` contains distributed tracing information (traceID, spanID, serviceName, operationName, duration, statusCode). This aligns with distributed tracing systems like Jaeger, Zipkin, or OpenTelemetry, which capture the flow of requests across multiple services. The hierarchical structure (parentSpanID) is essential for understanding service dependencies and critical paths.
+
+2.  **Strategy for Continuously Acquiring New Data:**
+    In a real-world scenario, continuous data acquisition would involve:
+    *   **Metrics:** Using agents (e.g., Prometheus Node Exporter, JMX Exporter) to scrape metrics from services and infrastructure. Prometheus could store short-term data, while long-term storage might involve a time-series database like Mimir or Cortex.
+    *   **Logs:** Deploying logging agents (e.g., Fluentd, Filebeat, Logstash) on each host/pod to collect logs, parse them, and forward them to a centralized logging platform (e.g., Elasticsearch, Loki, Splunk).
+    *   **Traces:** Instrumenting services with OpenTelemetry SDKs (or similar) to generate trace data, which is then sent to a collector (e.g., OpenTelemetry Collector) and stored in a distributed tracing backend (e.g., Jaeger, Tempo).
+    *   **Event Streaming:** Utilizing Kafka or similar message brokers to stream raw telemetry data, allowing for real-time processing and ingestion into various storage systems.
+
+3.  **Propose Appropriate Storage Solutions:**
+    *   **Raw Telemetry (Metrics/Logs/Traces):** Object storage (e.g., Amazon S3, Google Cloud Storage, Azure Blob Storage) is ideal for cost-effectively storing vast volumes of raw, immutable telemetry data. This forms a "data lake" for historical analysis and re-processing.
+    *   **Processed/Feature Data:** For structured, aggregated, or engineered features derived from raw telemetry, a scalable data warehouse (e.g., Google BigQuery, Snowflake, Amazon Redshift) or columnar database (e.g., Apache Parquet files on object storage) would be suitable for machine learning training. Time-series databases (e.g., InfluxDB, VictoriaMetrics) are also excellent for storing processed metric features.
+    *   **Metadata:** A dedicated metadata store or catalog (e.g., Apache Atlas, Google Data Catalog) to track schema, data lineage, quality metrics, and versions.
+
+4.  **Detail how Data Governance will be Implemented:**
+    *   **Schema Enforcement and Evolution:** For structured data (metrics, traces, parsed logs), define and enforce schemas using tools like Apache Avro or Protobuf. Implement schema registry for version control and compatibility checks. For logs, use flexible parsing rules (e.g., Grok patterns) with robust error handling.
+    *   **Data Quality and Consistency:** Implement automated data validation checks at ingestion points to identify and flag anomalies, missing values, or type mismatches. Regular audits of stored data to ensure consistency. Establish clear data ownership for each telemetry type.
+    *   **Versioning:** Version control for datasets (e.g., DVC for data versions, Git for code/pipelines) and feature sets to ensure reproducibility of model training. Timestamping all data points is crucial for temporal consistency.
+    *   **Metadata Management:** Centralized metadata catalog to store information about data sources, schemas, processing steps, quality reports, and access policies. This enhances discoverability and trust in the data.
+    *   **Access Control and Security:** Implement role-based access control (RBAC) for data access, encryption of data at rest and in transit, and adherence to relevant compliance standards.
+
+5.  **Explain how Existing Helper Functions will be Integrated:**
+    The provided helper functions (`load_case`, `normalize_timestamps`, `add_relative_time`) are foundational for initial data preparation and feature engineering. In a robust data management workflow, they would be integrated as follows:
+    *   **`load_case`:** This function is crucial for retrieving raw telemetry data for a specific case from storage. It would be the initial step in a data pipeline for any given incident, abstracting away the underlying storage details (e.g., whether it's on Hugging Face Hub or a local data lake). It ensures consistent loading of metrics, logs, and traces for a specified `case_id`.
+    *   **`normalize_timestamps`:** Once data is loaded (via `load_case`), this function standardizes the various timestamp formats (Unix seconds, milliseconds, string representations) into a unified Unix timestamp (seconds). This is a critical pre-processing step to ensure all telemetry sources are aligned on a common timeline, which is essential for accurate correlation and analysis.
+    *   **`add_relative_time`:** Building upon the normalized timestamps, this function calculates a `relative_time` column, anchored to the fault injection time. This is invaluable for incident-centric analysis and feature engineering, allowing the model to learn patterns relative to the anomaly. In a real-world system, `inject_time` would be replaced by the detected anomaly start time.
+    *   **Integration Flow:** These functions would form the initial stages of an ETL (Extract, Transform, Load) or ELT pipeline. Data would be:
+        1.  **Extracted** using `load_case` from the data lake/source.
+        2.  **Transformed** by `normalize_timestamps` and `add_relative_time` to prepare for feature extraction.
+        3.  Further processed by functions like `generate_case_windows` and `extract_window_features` (as demonstrated) to create the final feature vectors suitable for model training. These processed features would then be **Loaded** into a feature store or data warehouse.
+
+--- markdown ---
+## Refine Feature Engineering Techniques
+
+### Subtask:
+Expand and optimize the feature engineering process by exploring more sophisticated techniques for metrics, logs, and traces. This includes advanced time-series features, NLP for log analysis, and graph-based features for traces.
+
+
+--- code ---
+case_errors = []
+
+for test_rep in [1, 2, 3]:
+
+    train_reps = [rep for rep in [1, 2, 3] if rep != test_rep]
+
+    train_fold = rca_dataset[
+        rca_dataset["case_id"].str.endswith(
+            tuple(f"_{rep}" for rep in train_reps)
+        )
+    ].copy()
+
+    test_fold = rca_dataset[
+        rca_dataset["case_id"].str.endswith(f"_{test_rep}")
+    ].copy()
+
+    non_currency_features = [
+        col
+        for col in rca_feature_columns
+        if not col.startswith("currencyservice_")
+    ]
+
+    X_train = train_fold[non_currency_features].copy()
+    X_test = test_fold[non_currency_features].copy()
+
+    y_train = train_fold["label"].copy()
+    y_test = test_fold["label"].copy()
+
+    usable_features = [
+        col
+        for col in non_currency_features
+        if X_train[col].notna().any()
+    ]
+
+    X_train = X_train[usable_features]
+    X_test = X_test[usable_features]
+
+    imputer = SimpleImputer(strategy="median")
+
+    X_train_imp = imputer.fit_transform(X_train)
+    X_test_imp = imputer.transform(X_test)
+
+    model = RandomForestClassifier(
+        n_estimators=300,
+        random_state=42,
+        n_jobs=-1
+    )
+
+    model.fit(X_train_imp, y_train)
+
+    probabilities = model.predict_proba(X_test_imp)
+
+    # Store predictions directly in test_fold
+    test_fold["predicted"] = model.classes_[
+        np.argmax(probabilities, axis=1)
+    ]
+
+    # Store probability of every class
+    for i, class_name in enumerate(model.classes_):
+        test_fold[f"prob_{class_name}"] = probabilities[:, i]
+
+    # Case-level probability aggregation
+    probability_columns = [
+        f"prob_{class_name}"
+        for class_name in model.classes_
+    ]
+
+    case_predictions = (
+        test_fold
+        .groupby("case_id")
+        .agg(
+            true_label=("label", "first"),
+            **{
+                col: (col, "mean")
+                for col in probability_columns
+            }
+        )
+        .reset_index()
+    )
+
+    # Find highest average probability
+    probability_matrix = case_predictions[
+        probability_columns
+    ].values
+
+    case_predictions["predicted_label"] = model.classes_[
+        np.argmax(probability_matrix, axis=1)
+    ]
+
+    # Keep only incorrect cases
+    wrong = case_predictions[
+        case_predictions["true_label"]
+        != case_predictions["predicted_label"]
+    ].copy()
+
+    wrong["test_repetition"] = test_rep
+
+    case_errors.append(wrong)
+
+
+case_errors = pd.concat(
+    case_errors,
+    ignore_index=True
+)
+
+print(case_errors)
+
+--- code ---
+error_case_id = "re2ob_currencyservice_socket_1"
+
+error_case = all_case_data_re2ob[error_case_id]
+
+print("Case metadata:")
+print(error_case["metadata"])
+
+print("\nMetrics shape:")
+print(error_case["metrics"].shape)
+
+print("\nRelative time:")
+print(
+    error_case["metrics"]["relative_time"].min(),
+    "to",
+    error_case["metrics"]["relative_time"].max()
+)
+
+--- code ---
+metrics = error_case["metrics"]
+
+baseline = metrics[
+    (metrics["relative_time"] >= -60) &
+    (metrics["relative_time"] < 0)
+]
+
+faulty = metrics[
+    (metrics["relative_time"] >= 0) &
+    (metrics["relative_time"] < 60)
+]
+
+numeric_columns = metrics.select_dtypes(
+    include="number"
+).columns
+
+excluded_columns = [
+    "time",
+    "timestamp",
+    "relative_time"
+]
+
+numeric_columns = [
+    col for col in numeric_columns
+    if col not in excluded_columns
+]
+
+comparison = pd.DataFrame({
+    "baseline_median": baseline[numeric_columns].median(),
+    "faulty_median": faulty[numeric_columns].median()
+})
+
+comparison["delta"] = (
+    comparison["faulty_median"]
+    - comparison["baseline_median"]
+)
+
+comparison["abs_delta"] = comparison["delta"].abs()
+
+comparison = comparison.sort_values(
+    "abs_delta",
+    ascending=False
+)
+
+print(comparison.head(20))
+
+--- code ---
+# Use the difficult case from the previous evaluation
+
+case_id = "re2ob_currencyservice_socket_1"
+
+test_case = rca_dataset[
+    rca_dataset["case_id"] == case_id
+].copy()
+
+non_currency_features = [
+    col
+    for col in rca_feature_columns
+    if not col.startswith("currencyservice_")
+]
+
+# Train using repetitions 2 and 3
+train_fold = rca_dataset[
+    rca_dataset["case_id"].str.endswith("_2") |
+    rca_dataset["case_id"].str.endswith("_3")
+].copy()
+
+X_train = train_fold[non_currency_features].copy()
+X_test = test_case[non_currency_features].copy()
+
+y_train = train_fold["label"].copy()
+
+usable_features = [
+    col
+    for col in non_currency_features
+    if X_train[col].notna().any()
+]
+
+X_train = X_train[usable_features]
+X_test = X_test[usable_features]
+
+imputer = SimpleImputer(strategy="median")
+
+X_train_imp = imputer.fit_transform(X_train)
+X_test_imp = imputer.transform(X_test)
+
+model = RandomForestClassifier(
+    n_estimators=300,
+    random_state=42,
+    n_jobs=-1
+)
+
+model.fit(X_train_imp, y_train)
+
+probabilities = model.predict_proba(X_test_imp)
+
+timeline = test_case[
+    ["window_start", "window_end"]
+].copy()
+
+timeline["predicted"] = model.classes_[
+    np.argmax(probabilities, axis=1)
+]
+
+for i, class_name in enumerate(model.classes_):
+    timeline[f"prob_{class_name}"] = probabilities[:, i]
+
+print(timeline.to_string(index=False))
+
+--- code ---
+print("Dataset shape:", rca_dataset.shape)
+
+print("\nCases:", rca_dataset["case_id"].nunique())
+
+print("\nWindows per case:")
+print(
+    rca_dataset
+    .groupby("case_id")
+    .size()
+    .describe()
+)
+
+print("\nFeatures:", len(rca_feature_columns))
+
+--- code ---
+for case_id in rca_dataset["case_id"].unique()[:10]:
+
+    case_windows = rca_dataset[
+        rca_dataset["case_id"] == case_id
+    ].sort_values("window_start")
+
+    print(
+        case_id,
+        "→",
+        len(case_windows),
+        "windows |",
+        case_windows["window_start"].min(),
+        "to",
+        case_windows["window_end"].max()
+    )
+
+--- code ---
+timeline_summary = (
+    rca_dataset
+    .groupby("case_id")
+    .agg(
+        first_window=("window_start", "min"),
+        last_window=("window_end", "max"),
+        windows=("window_start", "count")
+    )
+)
+
+print(timeline_summary.head(20))
+
+print("\nCases not starting at 0:")
+print(
+    timeline_summary[
+        timeline_summary["first_window"] != 0
+    ]
+)
+
+--- code ---
+# Features used by the temporal model
+temporal_features = [
+    col
+    for col in rca_feature_columns
+    if not col.startswith("currencyservice_")
+]
+
+print("Temporal features:", len(temporal_features))
+
+# Maximum sequence length
+max_seq_len = (
+    rca_dataset
+    .groupby("case_id")
+    .size()
+    .max()
+)
+
+print("Maximum sequence length:", max_seq_len)
+
+# Build one sequence per case
+sequences = []
+sequence_labels = []
+sequence_case_ids = []
+sequence_lengths = []
+
+for case_id, group in rca_dataset.groupby("case_id"):
+
+    group = group.sort_values("window_start")
+
+    sequence = group[temporal_features].values
+
+    sequences.append(sequence)
+
+    sequence_labels.append(group["label"].iloc[0])
+
+    sequence_case_ids.append(case_id)
+
+    sequence_lengths.append(len(sequence))
+
+print("\nNumber of sequences:", len(sequences))
+
+print("Sequence lengths:")
+print(sequence_lengths[:20])
+
+print("\nLabels:")
+print(pd.Series(sequence_labels).value_counts())
+
+--- code ---
+sequence_df = pd.DataFrame({
+    "case_id": sequence_case_ids,
+    "label": sequence_labels,
+    "sequence_length": sequence_lengths
+})
+
+sequence_df["repetition"] = (
+    sequence_df["case_id"]
+    .str.extract(r"_(\d+)$")[0]
+    .astype(int)
+)
+
+train_cases = sequence_df[
+    sequence_df["repetition"].isin([2, 3])
+].copy()
+
+test_cases = sequence_df[
+    sequence_df["repetition"] == 1
+].copy()
+
+print("Train cases:", len(train_cases))
+print("Test cases:", len(test_cases))
+
+print("\nTrain labels:")
+print(train_cases["label"].value_counts().sort_index())
+
+print("\nTest labels:")
+print(test_cases["label"].value_counts().sort_index())
+
+print("\nCase overlap:")
+print(
+    set(train_cases["case_id"])
+    & set(test_cases["case_id"])
+)
+
+--- code ---
+# Keep only cases belonging to each split
+train_case_ids = set(train_cases["case_id"])
+test_case_ids = set(test_cases["case_id"])
+
+train_sequences = []
+test_sequences = []
+
+train_labels = []
+test_labels = []
+
+train_lengths = []
+test_lengths = []
+
+for case_id, sequence, label, length in zip(
+    sequence_case_ids,
+    sequences,
+    sequence_labels,
+    sequence_lengths
+):
+
+    if case_id in train_case_ids:
+        train_sequences.append(sequence)
+        train_labels.append(label)
+        train_lengths.append(length)
+
+    elif case_id in test_case_ids:
+        test_sequences.append(sequence)
+        test_labels.append(label)
+        test_lengths.append(length)
+
+print("Train sequences:", len(train_sequences))
+print("Test sequences:", len(test_sequences))
+
+print("\nTrain sequence lengths:")
+print(train_lengths)
+
+print("\nTest sequence lengths:")
+print(test_lengths)
+
+print("\nTrain labels:")
+print(pd.Series(train_labels).value_counts().sort_index())
+
+print("\nTest labels:")
+print(pd.Series(test_labels).value_counts().sort_index())
+
+--- code ---
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+
+# Combine all training windows
+train_flat = np.vstack(train_sequences)
+
+# Combine all test windows
+test_flat = np.vstack(test_sequences)
+
+print("Train flat shape:", train_flat.shape)
+print("Test flat shape:", test_flat.shape)
+
+# -------------------------
+# 1. Train-only imputation
+# -------------------------
+
+imputer = SimpleImputer(strategy="median")
+
+train_flat_imputed = imputer.fit_transform(train_flat)
+test_flat_imputed = imputer.transform(test_flat)
+
+print("\nMissing after imputation:")
+print("Train:", np.isnan(train_flat_imputed).sum())
+print("Test :", np.isnan(test_flat_imputed).sum())
+
+# -------------------------
+# 2. Train-only scaling
+# -------------------------
+
+scaler = StandardScaler()
+
+train_flat_scaled = scaler.fit_transform(
+    train_flat_imputed
+)
+
+test_flat_scaled = scaler.transform(
+    test_flat_imputed
+)
+
+print("\nScaled shapes:")
+print("Train:", train_flat_scaled.shape)
+print("Test :", test_flat_scaled.shape)
+
+--- code ---
+retained_mask = ~np.isnan(imputer.statistics_)
+
+usable_temporal_features = [
+    feature
+    for feature, keep in zip(
+        temporal_features,
+        retained_mask
+    )
+    if keep
+]
+
+removed_temporal_features = [
+    feature
+    for feature, keep in zip(
+        temporal_features,
+        retained_mask
+    )
+    if not keep
+]
+
+print("Original features:", len(temporal_features))
+print("Usable features:", len(usable_temporal_features))
+
+print("\nRemoved features:")
+print(removed_temporal_features)
+
+
+--- code ---
+# Rebuild the scaled sequences using the original
+# sequence lengths.
+
+train_sequences_scaled = []
+test_sequences_scaled = []
+
+train_position = 0
+
+for length in train_lengths:
+    sequence = train_flat_scaled[
+        train_position:train_position + length
+    ]
+
+    train_sequences_scaled.append(sequence)
+
+    train_position += length
+
+
+test_position = 0
+
+for length in test_lengths:
+    sequence = test_flat_scaled[
+        test_position:test_position + length
+    ]
+
+    test_sequences_scaled.append(sequence)
+
+    test_position += length
+
+
+print("Train sequences:", len(train_sequences_scaled))
+print("Test sequences:", len(test_sequences_scaled))
+
+print("\nFirst train sequence shape:")
+print(train_sequences_scaled[0].shape)
+
+print("\nFirst test sequence shape:")
+print(test_sequences_scaled[0].shape)
+
+print("\nTrain sequence lengths:")
+print([len(x) for x in train_sequences_scaled])
+
+print("\nTest sequence lengths:")
+print([len(x) for x in test_sequences_scaled])
+
+--- markdown ---
+# Task
+Develop a comprehensive machine learning pipeline for root cause analysis in microservices, including data acquisition, feature engineering, model training, and a robust evaluation framework using telemetry data (metrics, logs, and traces) from the `phamquiluan/RCAEval` dataset.
+
+--- markdown ---
+## Review Project Goals and Problem Statement
+
+### Subtask:
+Clearly define the specific objectives of the ML model within the 'ml-incident-intelligence-root-cause-analysis' project, including the types of incidents to detect and root causes to identify.
+
+
+--- markdown ---
+### Subtask Review Project Goals and Problem Statement
+
+#### Instructions
+1.  **Articulate the primary goal of developing this ML model for root cause analysis in microservices. What specific problem is it trying to solve?**
+    The primary goal is to develop an ML model that can automatically detect incidents in microservice architectures and identify their underlying root causes. This aims to reduce the Mean Time To Resolution (MTTR) of incidents by providing immediate, actionable insights to human operators, thereby minimizing service disruption and operational costs.
+
+2.  **Identify and list the types of incidents that the ML model should be able to detect (e.g., performance degradation, service unavailability, resource exhaustion).**
+    The ML model should be able to detect incidents including, but not limited to:
+    *   **Performance Degradation:** Increased latency, reduced throughput.
+    *   **Resource Exhaustion:** High CPU utilization, memory leaks, disk I/O bottlenecks.
+    *   **Service Unavailability/Errors:** High error rates, service crashes, connection issues.
+    *   **Network Issues:** Packet loss, increased network latency.
+
+3.  **For each incident type, specify the corresponding root causes that the model should aim to identify (e.g., CPU stress, memory leak, network latency, disk I/O bottlenecks).**
+    The model should identify root causes such as:
+    *   **CPU Stress:** Caused by high request load, inefficient code, or external dependencies.
+    *   **Memory Leak:** Due to incorrect memory management, usually in a specific service.
+    *   **Disk I/O Bottlenecks:** Caused by high disk activity from applications or logging.
+    *   **Network Latency/Loss:** Due to network congestion, misconfiguration, or external service issues.
+    *   **Socket Exhaustion:** Lack of available network sockets for a service.
+    *   **Application Errors:** Specific errors or exceptions in service logs.
+    *   **Workload Changes:** Abnormal spikes or drops in service requests/traffic.
+
+4.  **Define the expected output of the ML model when an incident is detected and a root cause is identified. What information should it provide to human operators or downstream systems?**
+    The expected output should be a clear, concise incident report including:
+    *   **Incident Type:** Classification of the incident (e.g., Performance Degradation).
+    *   **Root Cause Service:** The specific microservice identified as the origin of the fault (e.g., `checkoutservice`).
+    *   **Root Cause Type:** The nature of the fault (e.g., `CPU stress`).
+    *   **Confidence Score:** A probability or score indicating the model's certainty in its root cause identification.
+    *   **Relevant Telemetry Link/Context:** Links to specific metrics, logs, or traces that support the diagnosis, to aid further investigation.
+    *   **Timestamp:** Time of detection and estimated start time of the incident.
+
+5.  **Consider any specific performance requirements for the model, such as latency for detection or acceptable false positive/negative rates.**
+    *   **Detection Latency:** Incidents should be detected within 1-5 minutes of their occurrence to enable rapid response.
+    *   **False Positive Rate (FPR):** Should be kept low (e.g., <5%) to avoid alert fatigue for operators.
+    *   **False Negative Rate (FNR):** Should also be low (e.g., <5%) to ensure critical incidents are not missed.
+    *   **Accuracy:** High accuracy in identifying the correct root cause service and type (e.g., >90% Top-3 accuracy at case-level).
+
+--- markdown ---
+## Data Acquisition and Management Strategy
+
+### Subtask:
+Outline methods for acquiring and managing new or larger datasets for training, considering the structure and volume of telemetry data (metrics, logs, and traces).
+
+
+--- markdown ---
+# Task
+Expand and optimize the feature engineering process for telemetry data (`metrics`, `logs`, and `traces`) from the `phamquiluan/RCAEval` dataset. For metrics, develop advanced time-series features such as statistical aggregates (rolling mean, std dev, min, max), temporal derivatives (lagged values, differences, rates of change), and frequency domain features (FFT), along with features derived from deviations from learned normal baselines for each metric. For logs, implement Natural Language Processing (NLP) techniques including log parsing to extract structured information, generating word embeddings (e.g., TF-IDF, Word2Vec) from log messages, and creating sequential features to capture patterns in log message sequences, exploring features related to rare log events or sudden bursts of error messages. For traces, extract graph-based features by representing traces as graphs of service calls, including node centrality (e.g., degree, betweenness), path lengths, critical path identification, aggregated latency/duration patterns across services, and features for error propagation within trace paths.
+
+--- markdown ---
+## Metrics Feature Engineering
+
+### Subtask:
+Develop advanced time-series features for metrics, including statistical aggregates (rolling mean, std dev, min, max), temporal derivatives (lagged values, differences, rates of change), and frequency domain features (FFT).
+
+
+--- markdown ---
+### Subtask: Develop NLP-based features for logs
+
+We will define functions for parsing log messages and generating TF-IDF features. Log parsing involves extracting structured information from raw log messages, which can then be used to create features. TF-IDF (Term Frequency-Inverse Document Frequency) will convert the textual log messages into numerical feature vectors, capturing the importance of words in the context of all log messages.
+
+--- code ---
+import re
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+def parse_log_message(message: str) -> dict:
+    """
+    Parses a log message to extract structured information.
+
+    This function uses regex patterns to identify common log message structures
+    like key-value pairs, numeric values, and specific error codes.
+    It extracts these components and returns them as a dictionary.
+    """
+    parsed_data = {
+        'original_message': message,
+        'log_level': 'UNKNOWN',
+        'event_type': 'GENERIC',
+        'numeric_value': None,
+        'service_action': None
+    }
+
+    # Example: Extract log level (e.g., INFO, ERROR, WARNING)
+    level_match = re.search(r'(INFO|ERROR|WARN|DEBUG)', message)
+    if level_match: # Use level_match.group(0) for the matched string
+        parsed_data['log_level'] = level_match.group(0)
+
+    # Example: Extract key-value pairs or specific patterns
+    kv_matches = re.findall(r'(\w+)=(\S+)', message)
+    for key, value in kv_matches:
+        # Convert numeric values if applicable
+        try:
+            parsed_data[key] = float(value) if '.' in value else int(value)
+        except ValueError:
+            parsed_data[key] = value
+
+    # Example: Extract numeric values that might indicate a count or ID
+    numeric_match = re.search(r'\b(\d+)\b', message)
+    if numeric_match:
+        parsed_data['numeric_value'] = int(numeric_match.group(0))
+
+    # Example: Extract specific service actions (e.g., 'request started', 'order confirmation')
+    if 'request started' in message:
+        parsed_data['event_type'] = 'REQUEST_START'
+        parsed_data['service_action'] = 'request_started'
+    elif 'order confirmation' in message:
+        parsed_data['event_type'] = 'ORDER_CONFIRMATION'
+        parsed_data['service_action'] = 'order_confirmation_sent'
+    elif 'error' in message.lower():
+        parsed_data['event_type'] = 'ERROR_MESSAGE'
+        parsed_data['service_action'] = 'error_logged'
+
+    return parsed_data
+
+def generate_log_tfidf_features(log_df: pd.DataFrame, case_id: str, tfidf_vectorizer=None) -> pd.DataFrame:
+    """
+    Generates TF-IDF features from log messages for a given case.
+
+    Parameters
+    ----------
+    log_df : pd.DataFrame
+        DataFrame containing log data for a single case, with a 'message' column.
+    case_id : str
+        The ID of the case being processed.
+    tfidf_vectorizer : TfidfVectorizer, optional
+        Pre-fitted TF-IDF vectorizer. If None, a new one will be fitted.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame of TF-IDF features, indexed by the original log DataFrame's index.
+    """
+
+    if tfidf_vectorizer is None:
+        tfidf_vectorizer = TfidfVectorizer(max_features=100, stop_words='english')
+        tfidf_matrix = tfidf_vectorizer.fit_transform(log_df['message'].fillna(''))
+    else:
+        tfidf_matrix = tfidf_vectorizer.transform(log_df['message'].fillna(''))
+
+    tfidf_df = pd.DataFrame(
+        tfidf_matrix.toarray(),
+        columns=[f'tfidf_{w}' for w in tfidf_vectorizer.get_feature_names_out()],
+        index=log_df.index
+    )
+
+    return tfidf_df
+
+print("Log feature engineering helper functions defined: `parse_log_message` and `generate_log_tfidf_features`.")
+
+--- markdown ---
+First, let's apply the `parse_log_message` function to extract structured information from the raw log messages.
+
+--- code ---
+parsed_logs = logs['message'].apply(parse_log_message)
+parsed_logs_df = pd.DataFrame(parsed_logs.tolist(), index=logs.index)
+
+# Concatenate parsed features with original logs DataFrame
+logs_with_parsed_features = pd.concat([logs, parsed_logs_df], axis=1)
+
+print("Logs with parsed features shape:", logs_with_parsed_features.shape)
+print("\nParsed features sample:")
+display(logs_with_parsed_features[['original_message', 'log_level', 'event_type', 'numeric_value', 'service_action']].head())
+
+--- markdown ---
+Next, I'll generate TF-IDF features from the `message` column of the `logs` DataFrame. These features capture the importance of words in the context of the entire log collection.
+
+--- code ---
+# Generate TF-IDF features for the logs DataFrame.
+# The function will initialize and fit its own TF-IDF Vectorizer if not provided.
+tfidf_features = generate_log_tfidf_features(
+    log_df=logs,
+    case_id=error_case_id # Using an example case_id, which can be generalized later
+)
+
+print("TF-IDF features shape:", tfidf_features.shape)
+print("\nTF-IDF features sample (first 5 logs, first 10 features):")
+display(tfidf_features.head())
+
+--- markdown ---
+Here are the TF-IDF features generated from the log messages:
+
+--- code ---
+# Generate TF-IDF features for the logs DataFrame.
+# The function will initialize and fit its own TF-IDF Vectorizer if not provided.
+tfidf_features = generate_log_tfidf_features(
+    log_df=logs,
+    case_id=error_case_id # Using an example case_id, which can be generalized later
+)
+
+print("TF-IDF features shape:", tfidf_features.shape)
+print("\nTF-IDF features sample (first 5 logs, first 10 features):")
+display(tfidf_features.head())
+
+--- code ---
+# Re-execute the corrected TF-IDF feature generation
+
+tfidf_features = generate_log_tfidf_features(
+    log_df=logs,
+    case_id=error_case_id # Using an example case_id, which can be generalized later
+)
+
+print("TF-IDF features shape:", tfidf_features.shape)
+print("\nTF-IDF features sample (first 5 logs, first 10 features):")
+display(tfidf_features.head())
+
+--- markdown ---
+### Subtask: Develop Graph-Based Features for Traces
+
+For traces, we will extract graph-based features by representing traces as graphs of service calls. This includes node centrality (e.g., degree, betweenness), path lengths, critical path identification, aggregated latency/duration patterns across services, and features for error propagation within trace paths. We'll define helper functions for this task.
+
+--- markdown ---
+For traces, we'll represent each trace (identified by a unique `traceID`) as a directed graph where nodes are spans (representing operations) and edges indicate parent-child relationships. From these graphs, we'll extract several features:
+
+*   **Node Centrality:** Measures like degree centrality (number of connections), betweenness centrality (how often a node lies on the shortest path between other nodes), and closeness centrality (how close a node is to all other nodes).
+*   **Path Features:** Critical path identification (longest path in terms of duration) and overall trace depth/width.
+*   **Aggregated Latency/Duration:** Sums, means, max of durations for services or operations within a trace.
+*   **Error Propagation:** Features indicating the presence, location, and spread of errors (`statusCode`).
+
+--- code ---
+import networkx as nx
+import pandas as pd
+
+def create_trace_graph(spans_df: pd.DataFrame) -> nx.DiGraph:
+    """
+    Creates a directed graph from a DataFrame of spans for a single trace.
+
+    Nodes in the graph are `spanID`s. Edges represent parent-child relationships.
+    Node attributes include 'serviceName', 'operationName', 'duration', 'statusCode'.
+
+    Parameters
+    ----------
+    spans_df : pd.DataFrame
+        DataFrame containing spans belonging to a single trace (same traceID).
+        Must contain 'spanID', 'parentSpanID', 'serviceName', 'operationName',
+        'duration', 'statusCode' columns.
+
+    Returns
+    -------
+    nx.DiGraph
+        A directed graph representing the trace.
+    """
+    graph = nx.DiGraph()
+    # Add nodes (spans) with attributes
+    for _, span in spans_df.iterrows():
+        graph.add_node(
+            span['spanID'],
+            service=span['serviceName'],
+            operation=span['operationName'],
+            duration=span['duration'],
+            status=span['statusCode']
+        )
+
+    # Add edges based on parent-child relationships
+    for _, span in spans_df.iterrows():
+        if pd.notna(span['parentSpanID']) and span['parentSpanID'] in graph.nodes:
+            graph.add_edge(span['parentSpanID'], span['spanID'])
+
+    return graph
+
+def extract_graph_features(graph: nx.DiGraph, prefix: str = '') -> dict:
+    """
+    Extracts various graph-based features from a trace graph.
+
+    Parameters
+    ----------
+    graph : nx.DiGraph
+        The trace graph generated by `create_trace_graph`.
+    prefix : str, optional
+        Prefix for feature names (e.g., service name).
+
+    Returns
+    -------
+    dict
+        A dictionary of graph features.
+    """
+    features = {}
+    if graph.number_of_nodes() == 0:
+        return features # Return empty if no nodes
+
+    # Basic graph properties
+    features[f'{prefix}num_spans'] = graph.number_of_nodes()
+    features[f'{prefix}num_edges'] = graph.number_of_edges()
+
+    # Centrality measures (if graph is not too large for performance)
+    try:
+        degree_centrality = nx.degree_centrality(graph)
+        features[f'{prefix}avg_degree_centrality'] = sum(degree_centrality.values()) / len(degree_centrality)
+        features[f'{prefix}max_degree_centrality'] = max(degree_centrality.values())
+
+        # Optional: Betweenness and Closeness if performance allows
+        # betweenness_centrality = nx.betweenness_centrality(graph)
+        # features[f'{prefix}avg_betweenness_centrality'] = sum(betweenness_centrality.values()) / len(betweenness_centrality)
+        # features[f'{prefix}max_betweenness_centrality'] = max(betweenness_centrality.values())
+
+        # closeness_centrality = nx.closeness_centrality(graph)
+        # features[f'{prefix}avg_closeness_centrality'] = sum(closeness_centrality.values()) / len(closeness_centrality)
+        # features[f'{prefix}max_closeness_centrality'] = max(closeness_centrality.values())
+
+    except Exception as e:
+        # Handle cases where graph might be disconnected or other issues
+        print(f"Warning: Could not compute centrality for graph. Error: {e}")
+        features[f'{prefix}avg_degree_centrality'] = 0
+        features[f'{prefix}max_degree_centrality'] = 0
+
+    # Path-related features (e.g., depth of the trace)
+    if len(graph) > 1 and nx.is_directed_acyclic_graph(graph):
+        try:
+            longest_path_length = nx.dag_longest_path_length(graph)
+            features[f'{prefix}trace_depth'] = longest_path_length
+        except nx.NetworkXNoPath:
+            features[f'{prefix}trace_depth'] = 0
+    else:
+        features[f'{prefix}trace_depth'] = 0
+
+    # Aggregated duration features
+    all_durations = [data['duration'] for node, data in graph.nodes(data=True) if 'duration' in data]
+    if all_durations:
+        features[f'{prefix}total_duration'] = sum(all_durations)
+        features[f'{prefix}avg_span_duration'] = sum(all_durations) / len(all_durations)
+        features[f'{prefix}max_span_duration'] = max(all_durations)
+    else:
+        features[f'{prefix}total_duration'] = 0
+        features[f'{prefix}avg_span_duration'] = 0
+        features[f'{prefix}max_span_duration'] = 0
+
+    return features
+
+def extract_error_propagation_features(spans_df: pd.DataFrame, prefix: str = '') -> dict:
+    """
+    Extracts features related to error propagation within a trace.
+
+    Parameters
+    ----------
+    spans_df : pd.DataFrame
+        DataFrame containing spans for a single trace.
+    prefix : str, optional
+        Prefix for feature names (e.g., service name).
+
+    Returns
+    -------
+    dict
+        A dictionary of error propagation features.
+    """
+    features = {}
+    if spans_df.empty:
+        features[f'{prefix}has_error_span'] = 0
+        features[f'{prefix}error_span_count'] = 0
+        features[f'{prefix}prop_error_spans'] = 0
+        return features
+
+    # Assuming statusCode != 0 or is NaN indicates an error (adjust as per actual data convention)
+    # Convert NaN to 0 for error status where 0 means OK
+    spans_df_copy = spans_df.copy()
+    spans_df_copy['statusCode_normalized'] = spans_df_copy['statusCode'].fillna(0).astype(int)
+
+    error_spans = spans_df_copy[spans_df_copy['statusCode_normalized'] != 0]
+
+    features[f'{prefix}has_error_span'] = 1 if not error_spans.empty else 0
+    features[f'{prefix}error_span_count'] = len(error_spans)
+    features[f'{prefix}prop_error_spans'] = len(error_spans) / len(spans_df) if len(spans_df) > 0 else 0
+
+    return features
+
+
+def generate_trace_features(trace_df: pd.DataFrame, trace_id_col: str = 'traceID') -> pd.DataFrame:
+    """
+    Generates a DataFrame of features for each unique trace.
+
+    Parameters
+    ----------
+    trace_df : pd.DataFrame
+        DataFrame containing all trace spans. Must contain 'traceID',
+        'spanID', 'parentSpanID', 'serviceName', 'operationName',
+        'duration', 'statusCode'.
+    trace_id_col : str, optional
+        The name of the column that identifies unique traces.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame where each row is a trace, and columns are the extracted features.
+    """
+    all_trace_features = []
+
+    for trace_id, group in trace_df.groupby(trace_id_col):
+        trace_features = {'traceID': trace_id}
+
+        # Create graph and extract features
+        graph = create_trace_graph(group)
+        trace_features.update(extract_graph_features(graph, prefix='trace_'))
+        trace_features.update(extract_error_propagation_features(group, prefix='trace_'))
+
+        # Aggregate span attributes by service within the trace
+        for service_name, service_group in group.groupby('serviceName'):
+            prefix = f'{service_name}_span_'
+            service_durations = service_group['duration'].tolist()
+            if service_durations:
+                trace_features[f'{prefix}avg_duration'] = sum(service_durations) / len(service_durations)
+                trace_features[f'{prefix}max_duration'] = max(service_durations)
+                trace_features[f'{prefix}min_duration'] = min(service_durations)
+                trace_features[f'{prefix}num_spans'] = len(service_group)
+            else:
+                trace_features[f'{prefix}avg_duration'] = 0
+                trace_features[f'{prefix}max_duration'] = 0
+                trace_features[f'{prefix}min_duration'] = 0
+                trace_features[f'{prefix}num_spans'] = 0
+
+            # Error status per service
+            service_error_spans = service_group[service_group['statusCode'].fillna(0) != 0]
+            trace_features[f'{prefix}error_count'] = len(service_error_spans)
+            trace_features[f'{prefix}has_error'] = 1 if len(service_error_spans) > 0 else 0
+
+        all_trace_features.append(trace_features)
+
+    return pd.DataFrame(all_trace_features)
+
+print("Trace feature engineering helper functions defined: `create_trace_graph`, `extract_graph_features`, `extract_error_propagation_features`, and `generate_trace_features`.")
+
+--- code ---
+# Load traces data for a sample case
+# We'll use the 'traces' DataFrame which was already loaded for 're2ob_checkoutservice_cpu_1'
+
+print(f"Original traces shape: {traces.shape}")
+print(f"Unique traceIDs in sample traces data: {traces['traceID'].nunique()}")
+
+# Generate trace features using the helper function
+trace_features_df = generate_trace_features(traces)
+
+print("\nGenerated trace features DataFrame shape:", trace_features_df.shape)
+print("\nSample of generated trace features:")
+display(trace_features_df.head())
+
+print("\nColumns in the generated trace features:")
+print(trace_features_df.columns.tolist())

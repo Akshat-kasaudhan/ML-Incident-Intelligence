@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Downloaded Datasets (Too large for GitHub)
+rcaeval_case/
+rcaeval_cases/
+features.csv
+
+# Note: We are deliberately NOT ignoring the .pkl model files 
+# so that the Streamlit app works out-of-the-box when someone clones the repo!
