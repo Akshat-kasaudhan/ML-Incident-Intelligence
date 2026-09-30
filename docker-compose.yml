@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  nexus-rca-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nexus_rca_dashboard
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    environment:
+      - STREAMLIT_SERVER_MAX_UPLOAD_SIZE=200
+      # If using huggingface private datasets in production, uncomment and add token:
+      # - HF_TOKEN=your_token_here
+    volumes:
+      # Mount the local cache so we don't re-download datasets every container restart
+      - rca_cache:/root/.cache/huggingface
+
+volumes:
+  rca_cache:
