@@ -1,8 +1,8 @@
 # ML Incident Intelligence & Root Cause Analysis
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/Akshat-kasaudhan/ML-Incident-Intelligence/main/app.py)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://frwb8rqsvz6pnpqwfyp6fz.streamlit.app/)
 
-**Live Deployment:** [Access the Enterprise RCA Dashboard Here](https://share.streamlit.io/Akshat-kasaudhan/ML-Incident-Intelligence/main/app.py)
+**Live Deployment:** [Access the Enterprise RCA Dashboard Here](https://frwb8rqsvz6pnpqwfyp6fz.streamlit.app/)
 You are working as a senior ML Engineer / ML Research Engineer on an industry-oriented project called:
 
 **ML Incident Intelligence & Root Cause Analysis (RCA)**
