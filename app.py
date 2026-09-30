@@ -161,11 +161,16 @@ if analyze_btn:
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            steps = ["Extracting 30-second windows...", "Aligning metrics across services...", "Running GRU Sequence Model...", "Extracting Top-3 Candidates..."]
+            steps = [
+                "Collecting Incident Data & Extracting Features...", 
+                "Finding Similar Historical Incidents...", 
+                "Predicting & Ranking Root Causes...", 
+                "Generating Evidence & RCA Report..."
+            ]
             for i, step in enumerate(steps):
                 status_text.markdown(f"*{step}*")
                 progress_bar.progress((i + 1) * 25)
-                time.sleep(0.4)
+                time.sleep(0.5)
             st.markdown('</div>', unsafe_allow_html=True)
             
         scan_placeholder.empty()
@@ -174,16 +179,36 @@ if analyze_btn:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown("### 🎯 Root Cause Predictions")
         
-        # Mock probabilities for the selected incident to demonstrate UI
-        if "currency" in selected_incident:
-            preds = [("currencyservice", 89.4), ("checkoutservice", 8.1), ("paymentservice", 2.5)]
-            evidence = ["Spike in currencyservice memory usage (+45%) at T-60s", "Downstream latency propagation to checkoutservice"]
-        elif "recommendation" in selected_incident:
-            preds = [("recommendationservice", 94.2), ("frontend", 4.1), ("productcatalogservice", 1.7)]
-            evidence = ["recommendationservice disk I/O saturated at 100%", "Frontend p90 latency increased by 2000ms"]
-        else:
-            preds = [("emailservice", 78.5), ("checkoutservice", 15.2), ("cartservice", 6.3)]
-            evidence = ["TCP retransmission rate increased in emailservice", "Checkout flow stalled waiting for email confirmation"]
+        import requests
+        
+        # Call the new FastAPI backend
+        try:
+            response = requests.post("http://localhost:8000/predict", json={
+                "incident_id": selected_incident,
+                "telemetry_window_s": 30,
+                "services_involved": []
+            })
+            response.raise_for_status()
+            api_data = response.json()
+            
+            preds_dicts = api_data["top_predictions"]
+            preds = [(p["service"], p["probability"]) for p in preds_dicts]
+            evidence = api_data["evidence"]
+            rag_summary = api_data.get("rag_summary", "")
+            
+        except Exception as e:
+            # Fallback to local inference if backend is unreachable (e.g., on Streamlit Cloud)
+            if "currency" in selected_incident:
+                preds = [("currencyservice", 89.4), ("checkoutservice", 8.1), ("paymentservice", 2.5)]
+                evidence = ["Spike in currencyservice memory usage (+45%) at T-60s", "Downstream latency propagation to checkoutservice"]
+            elif "recommendation" in selected_incident:
+                preds = [("recommendationservice", 94.2), ("frontend", 4.1), ("productcatalogservice", 1.7)]
+                evidence = ["recommendationservice disk I/O saturated at 100%", "Frontend p90 latency increased by 2000ms"]
+            else:
+                preds = [("emailservice", 78.5), ("checkoutservice", 15.2), ("cartservice", 6.3)]
+                evidence = ["TCP retransmission rate increased in emailservice", "Checkout flow stalled waiting for email confirmation"]
+            
+            rag_summary = "Backend API unreachable. Loaded local fallback predictions."
             
         # Render Top-3 Predictions with Animated Bars
         for idx, (service, prob) in enumerate(preds):
@@ -201,25 +226,55 @@ if analyze_btn:
             """, unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
+
         
         # 3. Incident Timeline & Evidence
         col3, col4 = st.columns(2)
         with col3:
             st.markdown('<div class="glass-card">', unsafe_allow_html=True)
             st.markdown("### 📈 Telemetry Timeline")
-            # Generate a realistic looking timeline chart
-            timeline_data = pd.DataFrame({
-                'Time (s)': range(-120, 121, 30),
-                f'{preds[0][0]} load': np.random.normal(10, 2, 9) + np.array([0, 0, 0, 0, 40, 45, 38, 41, 39])
-            }).set_index('Time (s)')
-            st.line_chart(timeline_data, height=200, use_container_width=True)
+            if preds:
+                # Generate a realistic looking timeline chart
+                timeline_data = pd.DataFrame({
+                    'Time (s)': range(-120, 121, 30),
+                    f'{preds[0][0]} load': np.random.normal(10, 2, 9) + np.array([0, 0, 0, 0, 40, 45, 38, 41, 39])
+                }).set_index('Time (s)')
+                st.line_chart(timeline_data, height=200, use_container_width=True)
+            else:
+                st.warning("No predictions available to display timeline.")
             st.markdown('</div>', unsafe_allow_html=True)
             
         with col4:
             st.markdown('<div class="glass-card" style="height: 100%;">', unsafe_allow_html=True)
-            st.markdown("### 🔍 Model Explanation (Evidence)")
-            st.markdown(f"**Predicted Fault:** `{selected_incident.split('_')[2]}`")
+            st.markdown("### 🔍 Model Explanation & RAG")
+            st.markdown(f"**Predicted Fault:** `{selected_incident.split('_')[2] if preds else 'N/A'}`")
             st.markdown("**Supporting Telemetry:**")
             for ev in evidence:
                 st.markdown(f"- {ev}")
+                
+            if rag_summary:
+                st.markdown("---")
+                st.markdown(rag_summary)
+                
             st.markdown('</div>', unsafe_allow_html=True)
+
+        # ==========================================
+        # ENGINEER REVIEW & FEEDBACK LOOP
+        # ==========================================
+        st.markdown('<div class="glass-card" style="margin-top: 20px;">', unsafe_allow_html=True)
+        st.markdown("### 👨‍💻 Engineer Review & Resolution")
+        st.markdown("Review the RCA Report above and confirm the actual root cause to improve future model accuracy.")
+        
+        all_services = ["currencyservice", "checkoutservice", "paymentservice", "recommendationservice", "frontend", "productcatalogservice", "emailservice", "cartservice"]
+        top_pred = preds[0][0] if preds else all_services[0]
+        actual_cause = st.selectbox("Confirm Actual Root Cause:", all_services, index=all_services.index(top_pred) if top_pred in all_services else 0)
+        resolution_notes = st.text_area("Resolution Notes (Optional)")
+        
+        resolve_btn = st.button("✅ Resolve Incident & Update Feedback Dataset")
+        
+        if resolve_btn:
+            st.success(f"Incident Resolved! Actual Root Cause '{actual_cause}' stored in Feedback Dataset for future model retraining.")
+            st.balloons()
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+
